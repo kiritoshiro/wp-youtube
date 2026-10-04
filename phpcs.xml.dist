@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<ruleset name="WP YouTube security">
+  <description>WordPress security sniffs for plugin PHP.</description>
+  <file>wp-youtube.php</file>
+  <file>includes</file>
+  <arg name="extensions" value="php" />
+  <rule ref="WordPress.Security" />
+</ruleset>
