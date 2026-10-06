@@ -145,7 +145,7 @@ final class WP_YouTube {
 			}
 			$title = isset( $item['title'] ) ? sanitize_text_field( $item['title'] ) : '';
 			$high = $priority && 0 === $index;
-			$out .= '<div class="wpy-item"><button type="button" class="wpy-play" data-video="' . esc_attr( $video ) . '" data-playlist="' . esc_attr( $playlist ) . '" aria-label="' . esc_attr( sprintf( __( 'Play %s on YouTube', 'wp-youtube' ), $title ) ) . '">';
+			$out .= '<div class="wpy-item"><button type="button" class="wpy-play" data-video="' . esc_attr( $video ) . '" data-playlist="' . esc_attr( $playlist ) . '" aria-label="' . esc_attr( sprintf( /* translators: %s: video title */ __( 'Play %s on YouTube', 'wp-youtube' ), $title ) ) . '">';
 			$out .= '<img src="' . esc_url( self::poster_url( $video ) ) . '" width="480" height="270" alt="" loading="' . ( $high ? 'eager' : 'lazy' ) . '" decoding="async"' . ( $high ? ' fetchpriority="high"' : '' ) . '>';
 			$out .= '<span class="wpy-icon" aria-hidden="true">▶</span></button>';
 			if ( 'gallery' === $mode ) {
