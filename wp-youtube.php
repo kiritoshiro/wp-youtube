@@ -3,7 +3,7 @@
  * Plugin Name: WP YouTube
  * Plugin URI: https://github.com/kiritoshiro/wp-youtube
  * Description: Fast, privacy-conscious YouTube playlists and galleries.
- * Version: 0.1.2
+ * Version: 0.2.0
  * Requires at least: 6.4
  * Requires PHP: 7.4
  * Author: Adventistai
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPY_VERSION', '0.1.2' );
+define( 'WPY_VERSION', '0.2.0' );
 define( 'WPY_FILE', __FILE__ );
 
 require_once __DIR__ . '/includes/class-wp-youtube.php';
