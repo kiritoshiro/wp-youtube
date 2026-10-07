@@ -149,8 +149,11 @@
   /** URL of a shortcode: url= or playlist=, else its content (pasting may have turned the URL into a link). */
   function fromShortcode(named, data) {
     var content = data && data.shortcode && typeof data.shortcode.content === 'string' ? data.shortcode.content : '';
-    content = content.replace(/<[^>]*>/g, '').replace(/&amp;/gi, '&').trim();
-    return named.url || named.playlist || content || '';
+    content = content.replace(/&amp;/gi, '&').trim();
+    // A pasted link can arrive inside an HTML anchor. Extract its URL without parsing markup.
+    var link = content.match(/https?:\/\/[^\s"'<>]+/i);
+    var value = link ? link[0] : content;
+    return named.url || named.playlist || (playlistId(value) ? value : '');
   }
 
   wp.blocks.registerBlockType('wp-youtube/playlist', {
