@@ -17,6 +17,7 @@ if f" * Version: {version}\n" not in (ROOT / "wp-youtube.php").read_text():
 files = [ROOT / name for name in ("wp-youtube.php", "LICENSE", "README.md")]
 files += sorted((ROOT / "includes").glob("*.php"))
 files += sorted((ROOT / "assets").glob("*"))
+files += sorted((ROOT / "languages").glob("*.php"))
 if not all(path.is_file() for path in files):
     raise SystemExit("A required plugin file is missing")
 

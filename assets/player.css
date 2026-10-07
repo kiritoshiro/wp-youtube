@@ -1,2 +1,36 @@
-.wpy-list{display:grid;gap:1rem}.wpy-gallery{grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr))}.wpy-item{min-width:0}.wpy-play,.wpy-iframe{display:block;width:100%;aspect-ratio:16/9;border:0}.wpy-play{position:relative;overflow:hidden;padding:0;background:#102947;color:#fff;cursor:pointer}.wpy-play img{display:block;width:100%;height:100%;object-fit:cover}.wpy-icon{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;width:3.5rem;height:2.5rem;border-radius:.6rem;background:#c4302b;color:#fff;font:1.2rem/1 sans-serif}.wpy-play:hover .wpy-icon,.wpy-play:focus-visible .wpy-icon{background:#a31c18}.wpy-play:focus-visible{outline:3px solid #005fcc;outline-offset:3px}.wpy-title{margin:.5rem 0 0}.wpy-iframe{background:#000}.wpy-notice{margin:1rem 0;padding:.75rem 1rem;border-left:4px solid #dba617;background:#fcf9e8;color:#1e1e1e;font:.9rem/1.4 sans-serif}
-.wpy-item,.wpy-item .wpy-play,.wpy-item .wpy-iframe{border-radius:0!important}.wpy-list-title{margin:.5rem 0;font:.95rem/1.4 sans-serif}.wpy-list-title:first-child{margin-top:0}.wpy-list-title:last-child{margin-bottom:0}.wpy-list-title a{text-decoration:underline}
+.wpy-list{display:grid;gap:1rem}
+.wpy-item{min-width:0}
+.wpy-play,.wpy-iframe{display:block;width:100%;aspect-ratio:16/9;border:0}
+.wpy-play{position:relative;overflow:hidden;padding:0;background:#102947;color:#fff;cursor:pointer}
+.wpy-play img,.wpy-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.wpy-icon{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;width:3.5rem;height:2.5rem;border-radius:.6rem;background:#c4302b;color:#fff;font:1.2rem/1 sans-serif}
+.wpy-play:hover .wpy-icon,.wpy-play:focus-visible .wpy-icon,.wpy-thumb:hover .wpy-icon,.wpy-thumb:focus-visible .wpy-icon{background:#a31c18}
+.wpy-play:focus-visible,.wpy-thumb:focus-visible{outline:3px solid #005fcc;outline-offset:3px}
+.wpy-iframe{background:#000}
+.wpy-notice{margin:1rem 0;padding:.75rem 1rem;border-left:4px solid #dba617;background:#fcf9e8;color:#1e1e1e;font:.9rem/1.4 sans-serif}
+.wpy-item,.wpy-item .wpy-play,.wpy-item .wpy-iframe,.wpy-feature .wpy-play,.wpy-feature .wpy-iframe{border-radius:0!important}
+.wpy-list-title{margin:.5rem 0;font:.95rem/1.4 sans-serif}
+.wpy-list-title:first-child{margin-top:0}
+.wpy-list-title:last-child{margin-bottom:0}
+.wpy-list-title a{text-decoration:underline}
+
+/* Gallery: a large player, then a grid of the playlist. Selectors repeat
+   .wpy-gallery where the ALPS theme would win: it indents and bullets content
+   lists and colours every button. */
+.wpy-gallery{display:block}
+.wpy-feature{background:#000}
+.wpy-gallery .wpy-feature-title{margin:.75rem 0 1.5rem;font-size:1rem;font-weight:600;line-height:1.4}
+.wpy-gallery.wpy-gallery .wpy-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,13rem),1fr));gap:1.5rem 1.25rem;margin:0;padding:0;list-style:none}
+.wpy-gallery.wpy-gallery .wpy-item{margin:0;padding:0;text-indent:0!important}
+.wpy-gallery.wpy-gallery .wpy-item::before{content:none!important;display:none!important}
+.wpy-gallery.wpy-gallery .wpy-item[hidden]{display:none}
+.wpy-gallery.wpy-gallery .wpy-thumb{position:relative;display:block;width:100%;aspect-ratio:16/9;margin:0;padding:0;overflow:hidden;border:0;border-radius:0;background:#102947;box-shadow:none;cursor:pointer}
+.wpy-gallery .wpy-thumb .wpy-icon{width:2.75rem;height:2rem;font-size:1rem;opacity:0;transition:opacity .2s ease}
+.wpy-gallery .wpy-thumb:hover .wpy-icon,.wpy-gallery .wpy-thumb:focus-visible .wpy-icon,.wpy-gallery .is-active .wpy-icon{opacity:1}
+.wpy-gallery .is-active .wpy-thumb{outline:3px solid #c4302b;outline-offset:-3px}
+.wpy-gallery .wpy-title{display:-webkit-box;margin-top:.5rem;overflow:hidden;font-size:.9rem;line-height:1.4;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2}
+.wpy-gallery .wpy-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem 1.5rem;margin:1.5rem 0 0}
+.wpy-gallery.wpy-gallery .wpy-more{display:inline-block;margin:0;padding:.6rem 1.25rem;border:1px solid #c9ced6;border-radius:0;background:#f4f5f7;color:#1e1e1e;font-size:.9rem;line-height:1.4;text-transform:none;letter-spacing:normal;box-shadow:none;cursor:pointer}
+.wpy-gallery.wpy-gallery .wpy-more:hover,.wpy-gallery.wpy-gallery .wpy-more:focus-visible{border-color:#8c95a3;background:#e9ebef;color:#1e1e1e}
+.wpy-gallery .wpy-all{font-size:.9rem}
+@media (prefers-reduced-motion:reduce){.wpy-gallery .wpy-thumb .wpy-icon{transition:none}}

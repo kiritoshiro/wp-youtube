@@ -8,7 +8,7 @@
   var be = wp.blockEditor;
   var c = wp.components;
   var ServerSideRender = wp.serverSideRender;
-  var settings = window.wpyBlock || {hasKey: false, maxItems: 50};
+  var settings = window.wpyBlock || {hasKey: false, maxItems: 100};
 
   var HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com'];
   var ID = /^[A-Za-z0-9_-]{12,64}$/;
@@ -119,20 +119,21 @@
             value: gallery ? 'gallery' : 'playlist',
             options: [
               {label: __('Player (one video, plays the playlist)', 'wp-youtube'), value: 'playlist'},
-              {label: __('Gallery (a grid of the playlist\'s videos)', 'wp-youtube'), value: 'gallery'},
+              {label: __('Gallery (a large player and the playlist\'s videos below)', 'wp-youtube'), value: 'gallery'},
             ],
             onChange: function (mode) { setAttributes({mode: mode}); },
           }),
           gallery ? el(c.RangeControl, {
             __nextHasNoMarginBottom: true,
-            label: __('Number of videos', 'wp-youtube'),
+            label: __('Videos shown at first', 'wp-youtube'),
+            help: __('A "Show more videos" button reveals the rest of the playlist in steps of this size.', 'wp-youtube'),
             min: 1,
-            max: settings.maxItems || 50,
+            max: settings.maxItems || 100,
             value: attributes.limit || 12,
             onChange: function (limit) { setAttributes({limit: limit || 12}); },
           }) : null,
           gallery && !settings.hasKey ? el(c.Notice, {status: 'warning', isDismissible: false},
-            __('A gallery needs a YouTube Data API key (Settings → WP YouTube). Without one it shows only the first video.', 'wp-youtube')) : null,
+            __('A gallery needs a YouTube Data API key (Settings → WP YouTube, or the ALPS key under Settings → Media). Without one it shows only the first video.', 'wp-youtube')) : null,
           el(c.TextControl, {
             __nextHasNoMarginBottom: true,
             label: __('List title', 'wp-youtube'),
