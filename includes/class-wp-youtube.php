@@ -4,10 +4,13 @@ defined( 'ABSPATH' ) || exit;
 
 final class WP_YouTube {
 	const CACHE_TTL = 21600;
-	const MAX_ITEMS = 50;
+	/** Seconds a one-video fallback (no key or API failure) is kept before trying the API again. */
+	const RETRY_TTL = 600;
+	const MAX_ITEMS = 100;
 	private static $priority_used = false;
 
 	public static function register() {
+		add_action( 'init', array( __CLASS__, 'load_translations' ), 1 );
 		add_action( 'init', array( __CLASS__, 'register_block' ) );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'assets' ) );
 		add_action( 'template_redirect', array( __CLASS__, 'thumbnail_request' ), 0 );
@@ -39,6 +42,11 @@ final class WP_YouTube {
 		$content = preg_replace_callback( '~\[embedyt(\s[^\]]*)?\]\s*([^\[\]<>\s]+)\s*\[/embedyt\]~i', $to_url, $content );
 		$content = preg_replace_callback( '~\[embedyt(\s[^\]]*)?\]\s*(https?://[^\s\[\]<>"\']+)~i', $to_url, (string) $content );
 		return (string) preg_replace( '~\[/(?:embedyt|wp_youtube)\]~i', '', (string) $content );
+	}
+
+	/** Lithuanian front-end strings (languages/*.l10n.php, WordPress 6.5+). */
+	public static function load_translations() {
+		load_plugin_textdomain( 'wp-youtube', false, dirname( plugin_basename( WPY_FILE ) ) . '/languages' );
 	}
 
 	/** A message for people who can edit the page; visitors get nothing. */
@@ -91,6 +99,10 @@ final class WP_YouTube {
 		$mode = isset( $attributes['mode'] ) && 'gallery' === $attributes['mode'] ? 'gallery' : 'playlist';
 		$limit = max( 1, min( self::MAX_ITEMS, absint( isset( $attributes['limit'] ) && is_scalar( $attributes['limit'] ) ? $attributes['limit'] : 12 ) ) );
 		$html = self::render( $id, $mode, $limit, ! empty( $attributes['priority'] ) );
+		if ( 'gallery' === $mode ) {
+			$problem = self::gallery_problem( $id );
+			$html = ( '' !== $problem ? self::notice( $problem ) : '' ) . $html;
+		}
 		$title = isset( $attributes['listTitle'] ) && is_string( $attributes['listTitle'] ) ? sanitize_text_field( $attributes['listTitle'] ) : '';
 		$link = isset( $attributes['listTitleUrl'] ) && is_string( $attributes['listTitleUrl'] ) ? esc_url( $attributes['listTitleUrl'] ) : '';
 		$title_html = '';
@@ -173,14 +185,92 @@ final class WP_YouTube {
 		return self::render( $id, $mode, $limit, 'high' === strtolower( self::clean( $atts['priority'] ) ) );
 	}
 
-	private static function api_key() {
-		$key = defined( 'WPY_YOUTUBE_API_KEY' ) ? WPY_YOUTUBE_API_KEY : get_option( 'wpy_youtube_api_key', '' );
-		return is_string( $key ) && preg_match( '/^[A-Za-z0-9_-]{20,128}$/D', $key ) ? $key : '';
+	/**
+	 * The key in use and where it is set: this plugin's constant or setting,
+	 * else the ALPS Gutenberg Blocks key (its constant or Settings → Media), so
+	 * one key serves both YouTube blocks. ['', ''] when none is valid.
+	 */
+	public static function key_source() {
+		$keys = array(
+			array( defined( 'WPY_YOUTUBE_API_KEY' ) ? constant( 'WPY_YOUTUBE_API_KEY' ) : '', 'WPY_YOUTUBE_API_KEY' ),
+			array( get_option( 'wpy_youtube_api_key', '' ), __( 'Settings → WP YouTube', 'wp-youtube' ) ),
+			array( defined( 'ALPS_YOUTUBE_API_KEY' ) ? constant( 'ALPS_YOUTUBE_API_KEY' ) : '', 'ALPS_YOUTUBE_API_KEY' ),
+			array( get_option( 'alps_gb_youtube_api_key', '' ), __( 'Settings → Media (ALPS Gutenberg Blocks)', 'wp-youtube' ) ),
+		);
+		foreach ( $keys as $entry ) {
+			if ( is_string( $entry[0] ) && preg_match( '/^[A-Za-z0-9_-]{20,128}$/D', $entry[0] ) ) {
+				return $entry;
+			}
+		}
+		return array( '', '' );
 	}
 
-	/** A stale option keeps the page usable during temporary API failures. */
+	private static function api_key() {
+		$source = self::key_source();
+		return $source[0];
+	}
+
+	/** Cache entries belong to one playlist and one key, so a new key fetches at once. */
+	private static function cache_key( $playlist ) {
+		return 'wpy3_' . md5( $playlist . '|' . self::api_key() );
+	}
+
+	/** Up to MAX_ITEMS public videos of a playlist from the Data API; throws with a short reason. */
+	private static function api_items( $playlist, $api_key ) {
+		$items = array();
+		$token = '';
+		for ( $page = 0; $page < 2 && count( $items ) < self::MAX_ITEMS; $page++ ) {
+			$query = array( 'part' => 'snippet,status', 'playlistId' => $playlist, 'maxResults' => 50, 'key' => $api_key );
+			if ( '' !== $token ) {
+				$query['pageToken'] = $token;
+			}
+			$response = wp_remote_get(
+				add_query_arg( array_map( 'rawurlencode', $query ), 'https://www.googleapis.com/youtube/v3/playlistItems' ),
+				// The site's address as Referer, so a key restricted to this website works too.
+				array( 'timeout' => 6, 'redirection' => 0, 'limit_response_size' => 400000, 'headers' => array( 'Accept' => 'application/json', 'Referer' => home_url( '/' ) ) )
+			);
+			if ( is_wp_error( $response ) ) {
+				throw new RuntimeException( 'YouTube did not respond' ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught in videos(); shown only through notice(), which escapes.
+			}
+			$code = (int) wp_remote_retrieve_response_code( $response );
+			$data = json_decode( wp_remote_retrieve_body( $response ), true );
+			if ( 200 !== $code || ! is_array( $data ) ) {
+				$message = is_array( $data ) && isset( $data['error']['message'] ) && is_string( $data['error']['message'] ) ? wp_strip_all_tags( $data['error']['message'] ) : '';
+				throw new RuntimeException( trim( 'HTTP ' . $code . ' ' . substr( $message, 0, 160 ) ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught in videos(); shown only through notice(), which escapes.
+			}
+			foreach ( isset( $data['items'] ) && is_array( $data['items'] ) ? $data['items'] : array() as $item ) {
+				$video = isset( $item['snippet']['resourceId']['videoId'] ) ? self::video_id( $item['snippet']['resourceId']['videoId'] ) : '';
+				$title = isset( $item['snippet']['title'] ) && is_string( $item['snippet']['title'] ) ? sanitize_text_field( $item['snippet']['title'] ) : '';
+				$privacy = isset( $item['status']['privacyStatus'] ) ? $item['status']['privacyStatus'] : 'public';
+				if ( '' !== $video && '' !== $title && in_array( $privacy, array( 'public', 'unlisted' ), true ) && 'Private video' !== $title && 'Deleted video' !== $title ) {
+					$items[] = array( 'id' => $video, 'title' => $title );
+				}
+			}
+			$token = isset( $data['nextPageToken'] ) && is_string( $data['nextPageToken'] ) ? $data['nextPageToken'] : '';
+			if ( '' === $token ) {
+				break;
+			}
+		}
+		return array_slice( $items, 0, self::MAX_ITEMS );
+	}
+
+	/** Why a gallery shows a single video, for the editor note; '' when it is fine. */
+	public static function gallery_problem( $playlist ) {
+		if ( '' === self::api_key() ) {
+			return __( 'A gallery needs a YouTube Data API key (Settings → WP YouTube, or the ALPS key under Settings → Media). Without one it shows only the first video.', 'wp-youtube' );
+		}
+		$error = get_transient( self::cache_key( $playlist ) . '_error' );
+		/* translators: %s: reason, such as "HTTP 403 API key not valid." */
+		return is_string( $error ) && '' !== $error ? sprintf( __( 'The playlist could not be read from YouTube (%s), so only the first video is shown.', 'wp-youtube' ), $error ) : '';
+	}
+
+	/**
+	 * A stale option keeps the page usable during temporary API failures. A
+	 * one-video oEmbed fallback is kept only RETRY_TTL seconds and never
+	 * replaces a full list.
+	 */
 	public static function videos( $playlist, $limit ) {
-		$key = 'wpy_' . md5( $playlist );
+		$key = self::cache_key( $playlist );
 		$fresh = get_transient( $key );
 		if ( is_array( $fresh ) ) {
 			return array_slice( $fresh, 0, $limit );
@@ -189,17 +279,11 @@ final class WP_YouTube {
 		$items = array();
 		$api_key = self::api_key();
 		if ( '' !== $api_key ) {
-			$url = add_query_arg( array( 'part' => 'snippet', 'playlistId' => $playlist, 'maxResults' => self::MAX_ITEMS, 'key' => $api_key ), 'https://www.googleapis.com/youtube/v3/playlistItems' );
-			$response = wp_remote_get( $url, array( 'timeout' => 5, 'redirection' => 0, 'limit_response_size' => 200000, 'headers' => array( 'Accept' => 'application/json' ) ) );
-			if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
-				$data = json_decode( wp_remote_retrieve_body( $response ), true );
-				foreach ( (array) ( isset( $data['items'] ) ? $data['items'] : array() ) as $item ) {
-					$video = isset( $item['snippet']['resourceId']['videoId'] ) ? self::video_id( $item['snippet']['resourceId']['videoId'] ) : '';
-					$title = isset( $item['snippet']['title'] ) ? sanitize_text_field( $item['snippet']['title'] ) : '';
-					if ( '' !== $video && '' !== $title && 'Private video' !== $title && 'Deleted video' !== $title ) {
-						$items[] = array( 'id' => $video, 'title' => $title );
-					}
-				}
+			try {
+				$items = self::api_items( $playlist, $api_key );
+				delete_transient( $key . '_error' );
+			} catch ( RuntimeException $e ) {
+				set_transient( $key . '_error', $e->getMessage(), self::RETRY_TTL );
 			}
 		}
 		if ( ! $items && is_array( $stale ) && $stale ) {
@@ -215,6 +299,11 @@ final class WP_YouTube {
 					$items[] = array( 'id' => $matches[1], 'title' => isset( $data['title'] ) ? sanitize_text_field( $data['title'] ) : __( 'YouTube playlist', 'wp-youtube' ) );
 				}
 			}
+			if ( $items ) {
+				// Only the first video. With a key the API failed: try it again soon.
+				set_transient( $key, $items, '' !== $api_key ? self::RETRY_TTL : self::CACHE_TTL );
+				return array_slice( $items, 0, $limit );
+			}
 		}
 		if ( $items ) {
 			set_transient( $key, $items, self::CACHE_TTL );
@@ -227,11 +316,14 @@ final class WP_YouTube {
 
 	public static function render( $playlist, $mode, $limit, $priority ) {
 		$priority = $priority && ! self::$priority_used;
-		$items = self::videos( $playlist, 'gallery' === $mode ? $limit : 1 );
+		$items = self::videos( $playlist, 'gallery' === $mode ? self::MAX_ITEMS : 1 );
 		if ( ! $items ) {
 			return '<p>' . esc_html__( 'Videos are temporarily unavailable.', 'wp-youtube' ) . '</p>';
 		}
 		if ( $priority ) { self::$priority_used = true; }
+		if ( 'gallery' === $mode ) {
+			return self::render_gallery( $playlist, $items, max( 1, (int) $limit ), $priority );
+		}
 		$out = '<div class="wpy-list wpy-' . esc_attr( $mode ) . '">';
 		foreach ( $items as $index => $item ) {
 			$video = self::video_id( isset( $item['id'] ) ? $item['id'] : '' );
@@ -242,21 +334,72 @@ final class WP_YouTube {
 			$high = $priority && 0 === $index;
 			$out .= '<div class="wpy-item"><button type="button" class="wpy-play" data-video="' . esc_attr( $video ) . '" data-playlist="' . esc_attr( $playlist ) . '" aria-label="' . esc_attr( sprintf( /* translators: %s: video title */ __( 'Play %s on YouTube', 'wp-youtube' ), $title ) ) . '">';
 			$out .= '<img src="' . esc_url( self::poster_url( $video ) ) . '" width="480" height="270" alt="" loading="' . ( $high ? 'eager' : 'lazy' ) . '" decoding="async"' . ( $high ? ' fetchpriority="high"' : '' ) . '>';
-			$out .= '<span class="wpy-icon" aria-hidden="true">▶</span></button>';
-			if ( 'gallery' === $mode ) {
-				$out .= '<p class="wpy-title">' . esc_html( $title ) . '</p>';
-			}
-			$out .= '</div>';
+			$out .= '<span class="wpy-icon" aria-hidden="true">▶</span></button></div>';
 		}
 		return $out . '</div>';
 	}
 
-	private static function poster_url( $video ) {
-		$uploads = wp_upload_dir();
-		if ( empty( $uploads['error'] ) && ! empty( $uploads['basedir'] ) && ! empty( $uploads['baseurl'] ) && is_file( trailingslashit( $uploads['basedir'] ) . 'wp-youtube/' . $video . '.jpg' ) ) {
-			return trailingslashit( $uploads['baseurl'] ) . 'wp-youtube/' . $video . '.jpg';
+	private static function watch_url( $video, $playlist ) {
+		return 'https://www.youtube.com/watch?v=' . $video . '&list=' . $playlist;
+	}
+
+	/**
+	 * Gallery: the first video as a large poster that plays in place, then a
+	 * grid of the playlist's videos. A thumbnail plays its video in the large
+	 * player; its title links to the video on YouTube. The grid shows $step
+	 * videos and "Show more" reveals $step more at a time (player.js); hidden
+	 * thumbnails are not downloaded until they are shown.
+	 */
+	private static function render_gallery( $playlist, array $items, $step, $priority ) {
+		$videos = array();
+		foreach ( $items as $item ) {
+			$video = self::video_id( isset( $item['id'] ) ? $item['id'] : '' );
+			if ( '' !== $video ) {
+				$videos[] = array( 'id' => $video, 'title' => isset( $item['title'] ) ? sanitize_text_field( $item['title'] ) : '' );
+			}
 		}
-		return home_url( '/?wpy_thumb=' . $video . '&wpy_sig=' . substr( hash_hmac( 'sha256', $video, wp_salt( 'auth' ) ), 0, 32 ) );
+		if ( ! $videos ) {
+			return '<p>' . esc_html__( 'Videos are temporarily unavailable.', 'wp-youtube' ) . '</p>';
+		}
+		/* translators: %s: video title */
+		$play = __( 'Play %s', 'wp-youtube' );
+		$first = $videos[0];
+		$out = '<div class="wpy-list wpy-gallery" data-step="' . (int) $step . '">';
+		$out .= '<div class="wpy-feature"><button type="button" class="wpy-play" data-video="' . esc_attr( $first['id'] ) . '" data-playlist="' . esc_attr( $playlist ) . '" aria-label="' . esc_attr( sprintf( $play, $first['title'] ) ) . '">';
+		$out .= '<img src="' . esc_url( self::poster_url( $first['id'], 'large' ) ) . '" width="640" height="360" alt="" loading="' . ( $priority ? 'eager' : 'lazy' ) . '" decoding="async"' . ( $priority ? ' fetchpriority="high"' : '' ) . '>';
+		$out .= '<span class="wpy-icon" aria-hidden="true">▶</span></button></div>';
+		$out .= '<p class="wpy-feature-title"><a href="' . esc_url( self::watch_url( $first['id'], $playlist ) ) . '" target="_blank" rel="noopener">' . esc_html( $first['title'] ) . '</a></p>';
+		if ( count( $videos ) > 1 ) {
+			$out .= '<ul class="wpy-grid">';
+			foreach ( $videos as $index => $video ) {
+				$out .= '<li class="wpy-item' . ( 0 === $index ? ' is-active' : '' ) . '"' . ( $index >= $step ? ' hidden' : '' ) . '>';
+				$out .= '<button type="button" class="wpy-thumb" data-video="' . esc_attr( $video['id'] ) . '" aria-label="' . esc_attr( sprintf( $play, $video['title'] ) ) . '"' . ( 0 === $index ? ' aria-current="true"' : '' ) . '>';
+				$out .= '<img src="' . esc_url( self::poster_url( $video['id'] ) ) . '" width="320" height="180" alt="" loading="lazy" decoding="async"><span class="wpy-icon" aria-hidden="true">▶</span></button>';
+				$out .= '<a class="wpy-title" href="' . esc_url( self::watch_url( $video['id'], $playlist ) ) . '" target="_blank" rel="noopener">' . esc_html( $video['title'] ) . '</a></li>';
+			}
+			$out .= '</ul>';
+		}
+		$out .= '<p class="wpy-actions">';
+		if ( count( $videos ) > $step ) {
+			$out .= '<button type="button" class="wpy-more">' . esc_html__( 'Show more videos', 'wp-youtube' ) . '</button> ';
+		}
+		$out .= '<a class="wpy-all" href="' . esc_url( 'https://www.youtube.com/playlist?list=' . $playlist ) . '" target="_blank" rel="noopener">' . esc_html__( 'All videos on YouTube', 'wp-youtube' ) . '</a></p>';
+		return $out . '</div>';
+	}
+
+	/** First-party poster URL; 'large' is the 640 px image for a gallery's main video. */
+	private static function poster_url( $video, $size = '' ) {
+		$large = 'large' === $size;
+		$name = $video . ( $large ? '-large' : '' ) . '.jpg';
+		$uploads = wp_upload_dir();
+		if ( empty( $uploads['error'] ) && ! empty( $uploads['basedir'] ) && ! empty( $uploads['baseurl'] ) && is_file( trailingslashit( $uploads['basedir'] ) . 'wp-youtube/' . $name ) ) {
+			return trailingslashit( $uploads['baseurl'] ) . 'wp-youtube/' . $name;
+		}
+		return home_url( '/?wpy_thumb=' . $video . ( $large ? '&wpy_size=large' : '' ) . '&wpy_sig=' . self::thumb_signature( $video, $large ) );
+	}
+
+	private static function thumb_signature( $video, $large ) {
+		return substr( hash_hmac( 'sha256', $video . ( $large ? '|large' : '' ), wp_salt( 'auth' ) ), 0, 32 );
 	}
 
 	public static function thumbnail_request() {
@@ -267,7 +410,8 @@ final class WP_YouTube {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Strict video ID validation follows.
 		$id = is_string( $_GET['wpy_thumb'] ) ? self::video_id( sanitize_text_field( wp_unslash( $_GET['wpy_thumb'] ) ) ) : '';
 		$signature = isset( $_GET['wpy_sig'] ) && is_string( $_GET['wpy_sig'] ) ? sanitize_text_field( wp_unslash( $_GET['wpy_sig'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Signed public image URL.
-		if ( '' === $id || ! hash_equals( substr( hash_hmac( 'sha256', $id, wp_salt( 'auth' ) ), 0, 32 ), $signature ) ) {
+		$large = isset( $_GET['wpy_size'] ) && is_string( $_GET['wpy_size'] ) && 'large' === sanitize_key( wp_unslash( $_GET['wpy_size'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Fixed value, covered by the signature.
+		if ( '' === $id || ! hash_equals( self::thumb_signature( $id, $large ), $signature ) ) {
 			status_header( 404 );
 			exit;
 		}
@@ -277,9 +421,15 @@ final class WP_YouTube {
 			exit;
 		}
 		$dir = trailingslashit( $uploads['basedir'] ) . 'wp-youtube';
-		$file = $dir . '/' . $id . '.jpg';
+		$file = $dir . '/' . $id . ( $large ? '-large' : '' ) . '.jpg';
 		if ( ! is_file( $file ) ) {
-			$response = wp_remote_get( 'https://i.ytimg.com/vi/' . $id . '/mqdefault.jpg', array( 'timeout' => 6, 'redirection' => 0, 'limit_response_size' => 310000 ) );
+			// Large: 640x480 (letterboxed 16:9; the CSS crops the bars), else 480x360.
+			foreach ( $large ? array( 'sddefault', 'hqdefault' ) : array( 'mqdefault' ) as $source ) {
+				$response = wp_remote_get( 'https://i.ytimg.com/vi/' . $id . '/' . $source . '.jpg', array( 'timeout' => 6, 'redirection' => 0, 'limit_response_size' => 310000 ) );
+				if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
+					break;
+				}
+			}
 			$body = is_wp_error( $response ) ? '' : wp_remote_retrieve_body( $response );
 			$image_info = function_exists( 'getimagesizefromstring' ) ? @getimagesizefromstring( $body ) : false;
 			if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) || strlen( $body ) > 300000 || strlen( $body ) < 100 || ! is_array( $image_info ) || IMAGETYPE_JPEG !== $image_info[2] ) {
@@ -320,7 +470,10 @@ final class WP_YouTube {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
-		echo '<div class="wrap"><h1>WP YouTube</h1><p>Playlist blocks work without a key. Gallery mode needs a YouTube Data API key. Server requests use the key; visitors never receive it.</p>';
+		echo '<div class="wrap"><h1>WP YouTube</h1><p>Playlist blocks work without a key. Gallery mode needs a YouTube Data API key. Server requests use the key; visitors never receive it. If this field is empty, the ALPS Gutenberg Blocks key (Settings → Media) is used.</p>';
+		$source = self::key_source();
+		/* translators: 1: last four characters of the key, 2: where it is set */
+		echo '<p><strong>' . esc_html( '' !== $source[0] ? sprintf( __( 'In use: key …%1$s from %2$s.', 'wp-youtube' ), substr( $source[0], -4 ), $source[1] ) : __( 'No key is set.', 'wp-youtube' ) ) . '</strong></p>';
 		echo '<form action="options.php" method="post">';
 		settings_fields( 'wp_youtube' );
 		echo '<label for="wpy-key">YouTube Data API key</label> <input id="wpy-key" name="wpy_youtube_api_key" type="password" value="' . esc_attr( get_option( 'wpy_youtube_api_key', '' ) ) . '" autocomplete="off" class="regular-text">';

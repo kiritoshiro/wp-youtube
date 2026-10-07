@@ -1,16 +1,37 @@
 <?php
 /* Small WordPress stubs exercise input parsing, escaped output, and release gating. */
 define( 'ABSPATH', __DIR__ );
-define( 'WPY_VERSION', '0.2.2' );
+define( 'WPY_VERSION', '0.3.0' );
 define( 'WPY_FILE', __DIR__ . '/../wp-youtube.php' );
 define( 'HOUR_IN_SECONDS', 3600 );
 function wp_parse_url( $url ) { return parse_url( $url ); }
-function get_transient( $key ) { return false; }
+$GLOBALS['options'] = array();
+$GLOBALS['transients'] = array();
+$GLOBALS['ttl'] = array();
+$GLOBALS['calls'] = array();
+$GLOBALS['api'] = null;
+$GLOBALS['editor'] = false;
+function get_transient( $key ) { return isset( $GLOBALS['transients'][ $key ] ) ? $GLOBALS['transients'][ $key ] : false; }
 function get_site_transient( $key ) { global $test_release; return $test_release; }
-function get_option( $key, $default = '' ) { return $default; }
-function set_transient( $key, $value, $ttl ) {}
-function update_option( $key, $value, $autoload ) {}
-function wp_remote_get( $url, $args ) { return array( 'response' => array( 'code' => 200 ), 'body' => json_encode( array( 'thumbnail_url' => 'https://i.ytimg.com/vi/ABCdef12345/hqdefault.jpg', 'title' => '<script>unsafe</script> Video' ) ) ); }
+function get_option( $key, $default = '' ) { return array_key_exists( $key, $GLOBALS['options'] ) ? $GLOBALS['options'][ $key ] : $default; }
+function set_transient( $key, $value, $ttl ) { $GLOBALS['transients'][ $key ] = $value; $GLOBALS['ttl'][ $key ] = $ttl; }
+function delete_transient( $key ) { unset( $GLOBALS['transients'][ $key ] ); }
+function update_option( $key, $value, $autoload ) { $GLOBALS['options'][ $key ] = $value; }
+function wp_remote_get( $url, $args ) {
+	$GLOBALS['calls'][] = $url;
+	if ( 0 === strpos( $url, 'https://www.googleapis.com/' ) ) {
+		$GLOBALS['last_headers'] = $args['headers'];
+		parse_str( (string) parse_url( $url, PHP_URL_QUERY ), $query );
+		return call_user_func( $GLOBALS['api'], $query );
+	}
+	return array( 'response' => array( 'code' => 200 ), 'body' => json_encode( array( 'thumbnail_url' => 'https://i.ytimg.com/vi/ABCdef12345/hqdefault.jpg', 'title' => '<script>unsafe</script> Video' ) ) );
+}
+function add_query_arg( $args, $url ) { return $url . '?' . implode( '&', array_map( function ( $k, $v ) { return $k . '=' . $v; }, array_keys( $args ), $args ) ); }
+function wp_strip_all_tags( $s ) { return trim( strip_tags( (string) $s ) ); }
+function sanitize_key( $s ) { return strtolower( preg_replace( '/[^a-z0-9_\-]/i', '', (string) $s ) ); }
+function wp_unslash( $s ) { return $s; }
+function current_user_can( $cap ) { return $GLOBALS['editor']; }
+function get_block_wrapper_attributes( $extra ) { return 'class="' . $extra['class'] . '"'; }
 function wp_remote_retrieve_response_code( $response ) { return $response['response']['code']; }
 function wp_remote_retrieve_body( $response ) { return $response['body']; }
 function is_wp_error( $value ) { return $value instanceof WP_Error; }
@@ -67,14 +88,70 @@ check( '[wp_youtube playlist="' . $playlist . '"]<div>Kept</div>' === $stray, 's
 check( 'plain text' === WP_YouTube::normalize_shortcodes( 'plain text' ), 'content without these shortcodes untouched' );
 check( '' === WP_YouTube::shortcode( array( 'playlist' => 'nonsense' ) ), 'invalid shortcode prints nothing for visitors' );
 
-$asset = array( 'name' => 'wp-youtube-0.2.2.zip', 'state' => 'uploaded', 'browser_download_url' => 'https://github.com/kiritoshiro/wp-youtube/releases/download/v0.2.2/wp-youtube-0.2.2.zip', 'digest' => 'sha256:' . str_repeat( 'a', 64 ) );
-$release = array( 'tag_name' => 'v0.2.2', 'assets' => array( $asset ), 'draft' => false, 'prerelease' => false );
-check( '0.2.2' === WP_YouTube_Updater::parse( $release )['version'], 'valid release' );
+$asset = array( 'name' => 'wp-youtube-0.3.0.zip', 'state' => 'uploaded', 'browser_download_url' => 'https://github.com/kiritoshiro/wp-youtube/releases/download/v0.3.0/wp-youtube-0.3.0.zip', 'digest' => 'sha256:' . str_repeat( 'a', 64 ) );
+$release = array( 'tag_name' => 'v0.3.0', 'assets' => array( $asset ), 'draft' => false, 'prerelease' => false );
+check( '0.3.0' === WP_YouTube_Updater::parse( $release )['version'], 'valid release' );
 $release['prerelease'] = true;
 check( null === WP_YouTube_Updater::parse( $release ), 'reject prerelease' );
 $release['prerelease'] = false;
 $release['assets'][0]['browser_download_url'] = 'https://evil.test/plugin.zip';
 check( null === WP_YouTube_Updater::parse( $release ), 'reject external asset URL' );
-$test_release = WP_YouTube_Updater::parse( array( 'tag_name' => 'v0.2.2', 'assets' => array( $asset ) ) );
+$test_release = WP_YouTube_Updater::parse( array( 'tag_name' => 'v0.3.0', 'assets' => array( $asset ) ) );
 check( is_wp_error( WP_YouTube_Updater::download( false, $test_release['package'], null ) ), 'reject tampered update ZIP' );
+// Gallery: one key for both YouTube blocks, a large player, a grid and "Show more".
+$GLOBALS['transients'] = array();
+$GLOBALS['options'] = array();
+check( array( '', '' ) === WP_YouTube::key_source(), 'no key' );
+$GLOBALS['editor'] = true;
+$nokey = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery', 'limit' => 2 ) );
+check( false !== strpos( $nokey, 'needs a YouTube Data API key' ) && 1 === substr_count( $nokey, 'data-video=' ), 'gallery without a key: one video and an editor note' );
+check( 600 > 0 && 21600 === $GLOBALS['ttl'][ 'wpy3_' . md5( $playlist . '|' ) ], 'without a key the oEmbed fallback is cached normally' );
+$GLOBALS['options']['alps_gb_youtube_api_key'] = 'AIzaAlpsKey_0123456789abcdefgh';
+check( 'AIzaAlpsKey_0123456789abcdefgh' === WP_YouTube::key_source()[0], 'falls back to the ALPS Gutenberg Blocks key' );
+$GLOBALS['options']['wpy_youtube_api_key'] = 'AIzaOwnKey_0123456789abcdefghij';
+check( 'AIzaOwnKey_0123456789abcdefghij' === WP_YouTube::key_source()[0], 'own key wins over the ALPS key' );
+function wpy_item( $id, $title, $privacy = 'public' ) {
+	return array( 'snippet' => array( 'title' => $title, 'resourceId' => array( 'videoId' => $id ) ), 'status' => array( 'privacyStatus' => $privacy ) );
+}
+$GLOBALS['api'] = function ( $query ) {
+	if ( empty( $query['pageToken'] ) ) {
+		return array( 'response' => array( 'code' => 200 ), 'body' => json_encode( array( 'nextPageToken' => 'P2', 'items' => array( wpy_item( 'vid000000a1', 'First <b>video</b>' ), wpy_item( 'vid000000a2', 'Second & second' ), wpy_item( 'vid000000a3', 'Hidden', 'private' ) ) ) ) );
+	}
+	return array( 'response' => array( 'code' => 200 ), 'body' => json_encode( array( 'items' => array( wpy_item( 'vid000000a4', 'Fourth' ), wpy_item( 'vid000000a5', 'Fifth' ) ) ) ) );
+};
+$GLOBALS['calls'] = array();
+$gallery = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery', 'limit' => 2 ) );
+check( 2 === count( array_filter( $GLOBALS['calls'], function ( $u ) { return false !== strpos( $u, 'playlistItems' ); } ) ), 'a new key fetches at once, both pages' );
+check( 'https://example.test/' === $GLOBALS['last_headers']['Referer'], 'API requests carry the site address as Referer' );
+check( false === strpos( $gallery, 'wpy-notice' ), 'no editor note when the gallery works' );
+check( false !== strpos( $gallery, 'class="wpy-feature"><button type="button" class="wpy-play" data-video="vid000000a1"' ), 'first video is the large player' );
+check( false !== strpos( $gallery, 'wpy_size=large&amp;wpy_sig=' ) && false !== strpos( $gallery, 'width="640" height="360"' ), 'large first-party poster for the player' );
+check( 4 === substr_count( $gallery, 'class="wpy-thumb"' ) && false === strpos( $gallery, 'vid000000a3' ), 'grid lists the public videos of both pages' );
+check( 2 === substr_count( $gallery, '" hidden>' ), 'videos beyond the first step are hidden' );
+check( false !== strpos( $gallery, 'class="wpy-more"' ) && false !== strpos( $gallery, 'data-step="2"' ), '"Show more" button with the step size' );
+check( false !== strpos( $gallery, '<a class="wpy-title" href="https://www.youtube.com/watch?v=vid000000a2&amp;list=' . $playlist . '" target="_blank" rel="noopener">Second &amp; second</a>' ), 'titles link to the video on YouTube, escaped' );
+check( false !== strpos( $gallery, 'class="wpy-feature-title"><a href="https://www.youtube.com/watch?v=vid000000a1&amp;list=' ), 'player title links to YouTube' );
+check( false !== strpos( $gallery, 'https://www.youtube.com/playlist?list=' . $playlist ), 'link to the whole playlist' );
+check( false === strpos( $gallery, '<iframe' ) && false === strpos( $gallery, '<b>' ), 'no iframe before a click, tags stripped from titles' );
+$all = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery', 'limit' => 10 ) );
+check( false === strpos( $all, 'wpy-more' ) && false === strpos( $all, ' hidden>' ), 'no "Show more" when everything fits' );
+check( 2 === count( array_filter( $GLOBALS['calls'], function ( $u ) { return false !== strpos( $u, 'playlistItems' ); } ) ), 'list is cached' );
+$player = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'playlist' ) );
+check( 1 === substr_count( $player, 'data-video=' ) && false === strpos( $player, 'wpy-grid' ), 'player mode unchanged: one poster' );
+
+// API failure with a key: one video, the reason for editors, and a quick retry.
+$GLOBALS['options']['wpy_youtube_api_key'] = 'AIzaBrokenKey_0123456789abcdefgh';
+$GLOBALS['api'] = function () { return array( 'response' => array( 'code' => 403 ), 'body' => '{"error":{"message":"API key not valid."}}' ); };
+$broken = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) );
+check( false !== strpos( $broken, 'could not be read from YouTube (HTTP 403 API key not valid.)' ) && false === strpos( $broken, 'AIzaBrokenKey' ), 'editors see the API error without the key' );
+check( 600 === $GLOBALS['ttl'][ 'wpy3_' . md5( $playlist . '|AIzaBrokenKey_0123456789abcdefgh' ) ], 'a failed API fetch is retried after 10 minutes' );
+$GLOBALS['editor'] = false;
+check( false === strpos( WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) ), 'wpy-notice' ), 'visitors never see the note' );
+
+// Every translatable PHP string has a Lithuanian translation.
+$source = file_get_contents( __DIR__ . '/../includes/class-wp-youtube.php' );
+preg_match_all( "/(?:__|esc_html__|esc_attr__)\\( '((?:[^'\\\\]|\\\\.)*)'/", $source, $m );
+$translations = include __DIR__ . '/../languages/wp-youtube-lt_LT.l10n.php';
+$missing = array_diff( array_map( 'stripslashes', $m[1] ), array_keys( $translations['messages'] ) );
+check( ! $missing && count( $m[1] ) > 10, 'Lithuanian translation missing: ' . implode( ' | ', $missing ) );
 echo "All checks passed.\n";

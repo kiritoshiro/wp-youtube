@@ -10,8 +10,8 @@ Install a release ZIP in WordPress. Set the YouTube Data API key under **Setting
 
 In the editor, add the **YouTube playlist** block (Embeds category) and paste a playlist link (it contains `list=`) or a playlist ID. The block checks the link as you type. In its settings:
 
-- **Show:** a player (one poster that plays the playlist) or a gallery (a grid of the playlist's videos; needs the API key below).
-- **Number of videos:** for galleries, 1–50.
+- **Show:** a player (one poster that plays the playlist) or a gallery (needs the API key below): the first video as a large player, then a grid of the playlist's videos with their titles. A thumbnail plays its video in the large player; a title opens the video on YouTube. Below the grid, "Show more videos" and a link to the whole playlist on YouTube.
+- **Videos shown at first:** for galleries, 1–100. "Show more videos" reveals the rest in steps of this size; hidden thumbnails are not downloaded until shown.
 - **List title / Title link / Title position:** optionally show your own linked title above or below the videos (below by default).
 - **Near the top of the page:** loads the first poster straight away with high priority; use it for one player above the fold.
 
@@ -27,7 +27,11 @@ Existing core YouTube embed blocks whose URL has a `list=` playlist ID render as
 [wp_youtube playlist="PLjcvwNsWxJC5sVZoFeEcJHNXuCeev9GvK" mode="gallery" limit="12"]
 ```
 
-For a player near the top of the page use `mode="playlist" priority="high"`. This gives its first poster eager loading and high fetch priority. Gallery mode shows up to 50 current playlist items; it needs an API key. Without a key the plugin can show the playlist's first video through YouTube oEmbed, but cannot enumerate gallery items.
+For a player near the top of the page use `mode="playlist" priority="high"`. This gives its first poster eager loading and high fetch priority. Gallery mode shows up to 100 current playlist items; it needs an API key. Without a key the plugin can show the playlist's first video through YouTube oEmbed, but cannot enumerate gallery items, and editors see a note saying so.
+
+## API key
+
+Settings → WP YouTube, or `define( 'WPY_YOUTUBE_API_KEY', '…' );`. If neither is set, the key of the ALPS Gutenberg Blocks plugin (Settings → Media, or `ALPS_YOUTUBE_API_KEY`) is used, so one key serves both YouTube blocks. The settings page shows which key is in use. Requests send the site's address as referrer, so a key restricted to this website works; a key restricted to the YouTube Data API v3 without a website restriction also works. Lists are cached per key for 6 hours; a new key is used at once, and a failed fetch is retried after 10 minutes while editors see the reason.
 
 Do not run this alongside Embed Plus on production. On staging, record the old page output, disable Embed Plus, activate WP YouTube, and inspect all affected pages before removing the old plugin. Other Embed Plus features are not emulated. The site's separately coded YouTube list also requires separate migration.
 
