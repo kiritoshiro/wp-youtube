@@ -6,6 +6,20 @@ A small WordPress plugin for YouTube playlists and galleries. It renders video p
 
 Install a release ZIP in WordPress. Set the YouTube Data API key under **Settings → WP YouTube** for galleries, or define `WPY_YOUTUBE_API_KEY` in `wp-config.php` (the constant takes precedence). Restrict the key to the YouTube Data API and the site's server IP. The key is used only in server requests.
 
+## The YouTube playlist block
+
+In the editor, add the **YouTube playlist** block (Embeds category) and paste a playlist link (it contains `list=`) or a playlist ID. The block checks the link as you type. In its settings:
+
+- **Show:** a player (one poster that plays the playlist) or a gallery (a grid of the playlist's videos; needs the API key below).
+- **Number of videos:** for galleries, 1–50.
+- **Near the top of the page:** loads the first poster straight away with high priority; use it for one player above the fold.
+
+The preview in the editor is the real page output and is not clickable, so the editor never loads YouTube. Pasting a playlist link on its own line, or a `[wp_youtube]` or `[embedyt]` shortcode, creates the block; a YouTube embed block with a playlist link can be transformed into it.
+
+A wrong link or shortcode never breaks the page: visitors see nothing, and people who can edit the page see a short note saying what is missing. A missing or extra closing tag (`[/embedyt]`, `[/wp_youtube]`) can no longer swallow the content after it.
+
+## Shortcodes
+
 Existing core YouTube embed blocks whose URL has a `list=` playlist ID render as a fast playlist poster when Embed Plus is deactivated. The legacy `[embedyt]...playlist URL...[/embedyt]` shortcode also works; URLs with `layout=gallery` keep gallery mode. For a gallery use:
 
 ```
