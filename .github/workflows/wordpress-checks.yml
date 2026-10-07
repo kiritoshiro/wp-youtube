@@ -2,9 +2,9 @@ name: WordPress checks
 
 on:
   pull_request:
-    branches: ['feat/initial-plugin']
+    branches: ['main', 'feat/initial-plugin']
   push:
-    branches: ['feat/initial-plugin']
+    branches: ['main', 'feat/initial-plugin']
   workflow_dispatch:
   workflow_call:
 
