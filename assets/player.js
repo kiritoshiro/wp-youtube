@@ -14,7 +14,9 @@ document.addEventListener('click', function (event) {
   iframe.title = button.getAttribute('aria-label') || 'YouTube video';
   iframe.allow = 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share';
   iframe.allowFullscreen = true;
-  iframe.referrerPolicy = 'no-referrer';
+  // YouTube refuses embeds that send no Referer ("Error 153"). This policy sends
+  // only the site's origin, never the page path.
+  iframe.referrerPolicy = 'strict-origin-when-cross-origin';
   iframe.className = 'wpy-iframe';
   button.replaceWith(iframe);
   iframe.focus();
