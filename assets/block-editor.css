@@ -1,0 +1,22 @@
+/* "YouTube playlist" block, editor only. */
+.wpy-placeholder__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.wpy-placeholder__form .components-placeholder__input {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.wpy-placeholder__error {
+  margin: 8px 0 0;
+  color: #cc1818;
+}
+
+/* The preview is the server's real output; it is not clickable in the editor. */
+.wpy-editor-preview {
+  pointer-events: none;
+}

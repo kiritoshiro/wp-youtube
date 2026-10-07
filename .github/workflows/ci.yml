@@ -24,6 +24,7 @@ jobs:
           find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
           php tests/run.php
           node --check assets/player.js
+          node --check assets/block.js
       - name: WordPress security coding standard
         run: |
           composer validate --no-check-publish
