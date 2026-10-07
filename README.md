@@ -1,6 +1,6 @@
 # WP YouTube
 
-A small WordPress plugin for YouTube playlists and galleries. It renders video posters in the initial HTML and serves thumbnails through the site's own domain. Visitor browsers do not contact YouTube until a visitor clicks a poster. Clicking loads the video from `youtube-nocookie.com`, which is outside this plugin's control and may use browser storage. Each player also offers a direct YouTube link if the embed shows a sign-in or bot challenge; the plugin cannot bypass YouTube's verification. Video frames have square corners.
+A small WordPress plugin for YouTube playlists and galleries. It renders video posters in the initial HTML and serves thumbnails through the site's own domain. Visitor browsers do not contact YouTube until a visitor clicks a poster. Clicking loads the video from `youtube-nocookie.com`, which is outside this plugin's control and may use browser storage. Video frames have square corners. The block can show an optional, linked list title above or below the videos; no text appears under a player unless its title is set.
 
 ## Install and migrate
 
@@ -12,6 +12,7 @@ In the editor, add the **YouTube playlist** block (Embeds category) and paste a 
 
 - **Show:** a player (one poster that plays the playlist) or a gallery (a grid of the playlist's videos; needs the API key below).
 - **Number of videos:** for galleries, 1–50.
+- **List title / Title link / Title position:** optionally show your own linked title above or below the videos (below by default).
 - **Near the top of the page:** loads the first poster straight away with high priority; use it for one player above the fold.
 
 The preview in the editor is the real page output and is not clickable, so the editor never loads YouTube. Pasting a playlist link on its own line, or a `[wp_youtube]` or `[embedyt]` shortcode, creates the block; a YouTube embed block with a playlist link can be transformed into it.
