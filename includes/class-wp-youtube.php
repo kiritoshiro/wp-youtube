@@ -71,7 +71,10 @@ final class WP_YouTube {
 					'url'      => array( 'type' => 'string', 'default' => '' ),
 					'mode'     => array( 'type' => 'string', 'default' => 'playlist' ),
 					'limit'    => array( 'type' => 'number', 'default' => 12 ),
-					'priority' => array( 'type' => 'boolean', 'default' => false ),
+					'priority'      => array( 'type' => 'boolean', 'default' => false ),
+					'listTitle'     => array( 'type' => 'string', 'default' => '' ),
+					'listTitleUrl'  => array( 'type' => 'string', 'default' => '' ),
+					'titlePosition' => array( 'type' => 'string', 'default' => 'below' ),
 				),
 				'supports'              => array( 'align' => array( 'wide', 'full' ), 'anchor' => true, 'html' => false ),
 				'render_callback'       => array( __CLASS__, 'render_block' ),
@@ -88,8 +91,16 @@ final class WP_YouTube {
 		$mode = isset( $attributes['mode'] ) && 'gallery' === $attributes['mode'] ? 'gallery' : 'playlist';
 		$limit = max( 1, min( self::MAX_ITEMS, absint( isset( $attributes['limit'] ) && is_scalar( $attributes['limit'] ) ? $attributes['limit'] : 12 ) ) );
 		$html = self::render( $id, $mode, $limit, ! empty( $attributes['priority'] ) );
+		$title = isset( $attributes['listTitle'] ) && is_string( $attributes['listTitle'] ) ? sanitize_text_field( $attributes['listTitle'] ) : '';
+		$link = isset( $attributes['listTitleUrl'] ) && is_string( $attributes['listTitleUrl'] ) ? esc_url( $attributes['listTitleUrl'] ) : '';
+		$title_html = '';
+		if ( '' !== $title ) {
+			$title_content = '' !== $link ? '<a href="' . $link . '">' . esc_html( $title ) . '</a>' : esc_html( $title );
+			$title_html = '<p class="wpy-list-title">' . $title_content . '</p>';
+		}
+		$above = isset( $attributes['titlePosition'] ) && 'above' === $attributes['titlePosition'];
 		$wrapper = function_exists( 'get_block_wrapper_attributes' ) ? get_block_wrapper_attributes( array( 'class' => 'wpy-block' ) ) : 'class="wpy-block"';
-		return '<div ' . $wrapper . '>' . $html . '</div>';
+		return '<div ' . $wrapper . '>' . ( $above ? $title_html : '' ) . $html . ( $above ? '' : $title_html ) . '</div>';
 	}
 
 	public static function assets() {
@@ -235,7 +246,6 @@ final class WP_YouTube {
 			if ( 'gallery' === $mode ) {
 				$out .= '<p class="wpy-title">' . esc_html( $title ) . '</p>';
 			}
-			$out .= '<p class="wpy-fallback"><a href="' . esc_url( 'https://www.youtube.com/watch?v=' . $video . '&list=' . $playlist ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Watch on YouTube if playback is blocked', 'wp-youtube' ) . '</a></p>';
 			$out .= '</div>';
 		}
 		return $out . '</div>';

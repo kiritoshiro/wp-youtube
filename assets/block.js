@@ -133,6 +133,29 @@
           }) : null,
           gallery && !settings.hasKey ? el(c.Notice, {status: 'warning', isDismissible: false},
             __('A gallery needs a YouTube Data API key (Settings → WP YouTube). Without one it shows only the first video.', 'wp-youtube')) : null,
+          el(c.TextControl, {
+            __nextHasNoMarginBottom: true,
+            label: __('List title', 'wp-youtube'),
+            value: attributes.listTitle || '',
+            onChange: function (listTitle) { setAttributes({listTitle: listTitle}); },
+          }),
+          el(c.TextControl, {
+            __nextHasNoMarginBottom: true,
+            label: __('Title link (optional)', 'wp-youtube'),
+            type: 'url',
+            value: attributes.listTitleUrl || '',
+            onChange: function (listTitleUrl) { setAttributes({listTitleUrl: listTitleUrl}); },
+          }),
+          el(c.SelectControl, {
+            __nextHasNoMarginBottom: true,
+            label: __('Title position', 'wp-youtube'),
+            value: attributes.titlePosition || 'below',
+            options: [
+              {label: __('Below videos', 'wp-youtube'), value: 'below'},
+              {label: __('Above videos', 'wp-youtube'), value: 'above'},
+            ],
+            onChange: function (titlePosition) { setAttributes({titlePosition: titlePosition}); },
+          }),
           el(c.ToggleControl, {
             __nextHasNoMarginBottom: true,
             label: __('Near the top of the page', 'wp-youtube'),
@@ -142,7 +165,7 @@
           }))),
       // The preview is the real server output; clicks are disabled so the editor never loads YouTube.
       el('div', {className: 'wpy-editor-preview', inert: ''},
-        el(ServerSideRender, {block: 'wp-youtube/playlist', attributes: {url: attributes.url, mode: attributes.mode, limit: attributes.limit}}))
+        el(ServerSideRender, {block: 'wp-youtube/playlist', attributes: {url: attributes.url, mode: attributes.mode, limit: attributes.limit, listTitle: attributes.listTitle, listTitleUrl: attributes.listTitleUrl, titlePosition: attributes.titlePosition}}))
     );
   }
 
@@ -168,6 +191,9 @@
       mode: {type: 'string', default: 'playlist'},
       limit: {type: 'number', default: 12},
       priority: {type: 'boolean', default: false},
+      listTitle: {type: 'string', default: ''},
+      listTitleUrl: {type: 'string', default: ''},
+      titlePosition: {type: 'string', default: 'below'},
     },
     supports: {align: ['wide', 'full'], anchor: true, html: false},
     example: {attributes: {url: 'https://www.youtube.com/playlist?list=PLjcvwNsWxJC5sVZoFeEcJHNXuCeev9GvK'}},

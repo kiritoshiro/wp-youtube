@@ -1,7 +1,7 @@
 <?php
 /* Small WordPress stubs exercise input parsing, escaped output, and release gating. */
 define( 'ABSPATH', __DIR__ );
-define( 'WPY_VERSION', '0.2.1' );
+define( 'WPY_VERSION', '0.2.2' );
 define( 'WPY_FILE', __DIR__ . '/../wp-youtube.php' );
 define( 'HOUR_IN_SECONDS', 3600 );
 function wp_parse_url( $url ) { return parse_url( $url ); }
@@ -42,8 +42,13 @@ check( false !== strpos( $gallery_html, 'wpy-gallery' ), 'legacy gallery URL' );
 check( false !== strpos( $html, '/?wpy_thumb=ABCdef12345&amp;wpy_sig=' ), 'first-party poster URL in HTML' );
 check( false !== strpos( $html, 'fetchpriority="high"' ), 'priority poster' );
 check( false === strpos( $html, '<script>' ) && false === strpos( $html, 'youtube.com/embed' ), 'no injected HTML or iframe before click' );
-check( false !== strpos( $html, 'https://www.youtube.com/watch?v=ABCdef12345&amp;list=' . $playlist ), 'direct YouTube fallback URL' );
-check( false !== strpos( $html, 'rel="noopener noreferrer"' ), 'safe external fallback link' );
+check( false === strpos( $html, 'Watch on YouTube if playback is blocked' ), 'no fixed link under videos' );
+$below = WP_YouTube::render_block( array( 'url' => $playlist, 'listTitle' => 'List & title', 'listTitleUrl' => 'https://example.test/list?a=1&b=2' ) );
+check( false !== strpos( $below, '<p class="wpy-list-title"><a href="https://example.test/list?a=1&amp;b=2">List &amp; title</a></p>' ), 'linked list title is escaped' );
+check( strpos( $below, 'class="wpy-list wpy-playlist"' ) < strpos( $below, 'class="wpy-list-title"' ), 'list title defaults below videos' );
+$above = WP_YouTube::render_block( array( 'url' => $playlist, 'listTitle' => 'Above', 'titlePosition' => 'above' ) );
+check( strpos( $above, 'class="wpy-list-title"' ) < strpos( $above, 'class="wpy-list wpy-playlist"' ), 'list title can appear above videos' );
+check( false === strpos( WP_YouTube::render_block( array( 'url' => $playlist ) ), 'wpy-list-title' ), 'no title when unset' );
 // Pasted values: &amp; from the editor, curly quotes.
 check( $playlist === WP_YouTube::playlist_id( 'https://www.youtube.com/watch?v=9REXs02evsM&amp;list=' . $playlist ), 'URL with &amp; from the editor' );
 check( $playlist === WP_YouTube::playlist_id( "\u{201D}" . $playlist . "\u{201D}" ), 'curly-quoted playlist ID' );
@@ -62,14 +67,14 @@ check( '[wp_youtube playlist="' . $playlist . '"]<div>Kept</div>' === $stray, 's
 check( 'plain text' === WP_YouTube::normalize_shortcodes( 'plain text' ), 'content without these shortcodes untouched' );
 check( '' === WP_YouTube::shortcode( array( 'playlist' => 'nonsense' ) ), 'invalid shortcode prints nothing for visitors' );
 
-$asset = array( 'name' => 'wp-youtube-0.2.1.zip', 'state' => 'uploaded', 'browser_download_url' => 'https://github.com/kiritoshiro/wp-youtube/releases/download/v0.2.1/wp-youtube-0.2.1.zip', 'digest' => 'sha256:' . str_repeat( 'a', 64 ) );
-$release = array( 'tag_name' => 'v0.2.1', 'assets' => array( $asset ), 'draft' => false, 'prerelease' => false );
-check( '0.2.1' === WP_YouTube_Updater::parse( $release )['version'], 'valid release' );
+$asset = array( 'name' => 'wp-youtube-0.2.2.zip', 'state' => 'uploaded', 'browser_download_url' => 'https://github.com/kiritoshiro/wp-youtube/releases/download/v0.2.2/wp-youtube-0.2.2.zip', 'digest' => 'sha256:' . str_repeat( 'a', 64 ) );
+$release = array( 'tag_name' => 'v0.2.2', 'assets' => array( $asset ), 'draft' => false, 'prerelease' => false );
+check( '0.2.2' === WP_YouTube_Updater::parse( $release )['version'], 'valid release' );
 $release['prerelease'] = true;
 check( null === WP_YouTube_Updater::parse( $release ), 'reject prerelease' );
 $release['prerelease'] = false;
 $release['assets'][0]['browser_download_url'] = 'https://evil.test/plugin.zip';
 check( null === WP_YouTube_Updater::parse( $release ), 'reject external asset URL' );
-$test_release = WP_YouTube_Updater::parse( array( 'tag_name' => 'v0.2.1', 'assets' => array( $asset ) ) );
+$test_release = WP_YouTube_Updater::parse( array( 'tag_name' => 'v0.2.2', 'assets' => array( $asset ) ) );
 check( is_wp_error( WP_YouTube_Updater::download( false, $test_release['package'], null ) ), 'reject tampered update ZIP' );
 echo "All checks passed.\n";
