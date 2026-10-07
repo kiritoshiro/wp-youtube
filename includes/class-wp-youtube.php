@@ -235,6 +235,7 @@ final class WP_YouTube {
 			if ( 'gallery' === $mode ) {
 				$out .= '<p class="wpy-title">' . esc_html( $title ) . '</p>';
 			}
+			$out .= '<p class="wpy-fallback"><a href="' . esc_url( 'https://www.youtube.com/watch?v=' . $video . '&list=' . $playlist ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Watch on YouTube if playback is blocked', 'wp-youtube' ) . '</a></p>';
 			$out .= '</div>';
 		}
 		return $out . '</div>';
