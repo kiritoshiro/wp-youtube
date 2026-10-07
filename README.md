@@ -1,6 +1,6 @@
 # WP YouTube
 
-A small WordPress plugin for YouTube playlists and galleries. It renders video posters in the initial HTML and serves thumbnails through the site's own domain. Visitor browsers do not contact YouTube until a visitor clicks a poster. Clicking loads the video from `youtube-nocookie.com`, which is outside this plugin's control and may use browser storage.
+A small WordPress plugin for YouTube playlists and galleries. It renders video posters in the initial HTML and serves thumbnails through the site's own domain. Visitor browsers do not contact YouTube until a visitor clicks a poster. Clicking loads the video from `youtube-nocookie.com`, which is outside this plugin's control and may use browser storage. Each player also offers a direct YouTube link if the embed shows a sign-in or bot challenge; the plugin cannot bypass YouTube's verification. Video frames have square corners.
 
 ## Install and migrate
 
