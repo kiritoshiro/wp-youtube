@@ -117,7 +117,7 @@ final class WP_YouTube {
 
 	public static function assets() {
 		wp_enqueue_style( 'wp-youtube', plugins_url( 'assets/player.css', WPY_FILE ), array(), WPY_VERSION );
-		wp_enqueue_script( 'wp-youtube', plugins_url( 'assets/player.js', WPY_FILE ), array(), WPY_VERSION, true );
+		wp_enqueue_script( 'wp-youtube', plugins_url( 'assets/player.js', WPY_FILE ), array(), WPY_VERSION, array( 'in_footer' => true, 'strategy' => 'defer' ) );
 	}
 
 	/** Shortcode values pasted into the editor arrive with &amp; and sometimes curly quotes. */
