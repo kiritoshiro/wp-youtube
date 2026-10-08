@@ -24,5 +24,10 @@ return array(
 		'YouTube playlist: add a playlist link (with list=) or a playlist ID.' => 'YouTube grojaraštis: įrašykite grojaraščio nuorodą (su list=) arba grojaraščio ID.',
 		'YouTube: [embedyt] needs a playlist link (with list=).'              => 'YouTube: [embedyt] reikia grojaraščio nuorodos (su list=).',
 		'YouTube: [wp_youtube] needs playlist="…" with a playlist link or ID.' => 'YouTube: [wp_youtube] reikia playlist="…" su grojaraščio nuoroda arba ID.',
+		'A playlist is kept for 30 minutes; after that the newer list is fetched in the background, so a new video appears within about half an hour. To show it at once, refresh now.' => 'Grojaraštis saugomas 30 minučių; po to naujesnis sąrašas atsiunčiamas fone, todėl naujas vaizdo įrašas pasirodo maždaug per pusvalandį. Kad jis pasirodytų iš karto, atnaujinkite dabar.',
+		'Playlists' => 'Grojaraščiai',
+		'Playlists refreshed: %d.' => 'Atnaujinta grojaraščių: %d.',
+		'Refresh playlists now' => 'Atnaujinti grojaraščius dabar',
+		'You are not allowed to do this.' => 'Jums neleidžiama to daryti.',
 	),
 );

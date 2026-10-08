@@ -1,7 +1,7 @@
 <?php
 /* Small WordPress stubs exercise input parsing, escaped output, and release gating. */
 define( 'ABSPATH', __DIR__ );
-define( 'WPY_VERSION', '0.3.1' );
+define( 'WPY_VERSION', '0.3.2' );
 define( 'WPY_FILE', __DIR__ . '/../wp-youtube.php' );
 define( 'HOUR_IN_SECONDS', 3600 );
 function wp_parse_url( $url ) { return parse_url( $url ); }
@@ -18,6 +18,10 @@ function get_option( $key, $default = '' ) { return array_key_exists( $key, $GLO
 function set_transient( $key, $value, $ttl ) { $GLOBALS['transients'][ $key ] = $value; $GLOBALS['ttl'][ $key ] = $ttl; }
 function delete_transient( $key ) { unset( $GLOBALS['transients'][ $key ] ); }
 function update_option( $key, $value, $autoload ) { $GLOBALS['options'][ $key ] = $value; }
+$GLOBALS['cron'] = array();
+function wp_next_scheduled( $hook, $args ) { return $GLOBALS['cron'][ $hook . '|' . implode( ',', $args ) ] ?? false; }
+function wp_schedule_single_event( $time, $hook, $args ) { $GLOBALS['cron'][ $hook . '|' . implode( ',', $args ) ] = $time; }
+function wp_unschedule_event( $time, $hook, $args ) { unset( $GLOBALS['cron'][ $hook . '|' . implode( ',', $args ) ] ); }
 function wp_remote_get( $url, $args ) {
 	$GLOBALS['calls'][] = $url;
 	if ( 0 === strpos( $url, 'https://www.googleapis.com/' ) ) {
@@ -121,7 +125,7 @@ check( array( '', '' ) === WP_YouTube::key_source(), 'no key' );
 $GLOBALS['editor'] = true;
 $nokey = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery', 'limit' => 2 ) );
 check( false !== strpos( $nokey, 'needs a YouTube Data API key' ) && 1 === substr_count( $nokey, 'data-video=' ), 'gallery without a key: one video and an editor note' );
-check( 600 > 0 && 21600 === $GLOBALS['ttl'][ 'wpy3_' . md5( $playlist . '|' ) ], 'without a key the oEmbed fallback is cached normally' );
+check( 1800 === WP_YouTube::CACHE_TTL && WP_YouTube::CACHE_TTL === $GLOBALS['ttl'][ 'wpy3_' . md5( $playlist . '|' ) ], 'without a key the oEmbed fallback is cached normally' );
 $GLOBALS['options']['alps_gb_youtube_api_key'] = 'AIzaAlpsKey_0123456789abcdefgh';
 check( 'AIzaAlpsKey_0123456789abcdefgh' === WP_YouTube::key_source()[0], 'falls back to the ALPS Gutenberg Blocks key' );
 $GLOBALS['options']['wpy_youtube_api_key'] = 'AIzaOwnKey_0123456789abcdefghij';
@@ -153,6 +157,29 @@ $all = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery',
 check( false === strpos( $all, 'wpy-more' ) && false === strpos( $all, ' hidden>' ), 'no "Show more" when everything fits' );
 check( 2 === count( array_filter( $GLOBALS['calls'], function ( $u ) { return false !== strpos( $u, 'playlistItems' ); } ) ), 'list is cached' );
 $player = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'playlist' ) );
+
+// After 30 minutes visitors get the saved list at once and WP-Cron fetches the new one.
+$listKey = 'wpy3_' . md5( $playlist . '|AIzaOwnKey_0123456789abcdefghij' );
+$playlistId = WP_YouTube::playlist_id( $playlist );
+check( 1800 === $GLOBALS['ttl'][ $listKey ], 'a full list is fresh for 30 minutes' );
+check( array( $playlistId ) === $GLOBALS['options']['wpy_playlists'], 'shown playlists are remembered for "Refresh playlists now"' );
+$GLOBALS['api'] = function ( $query ) {
+	return array( 'response' => array( 'code' => 200 ), 'body' => json_encode( array( 'items' => array( wpy_item( 'vidnewest01', 'Newest' ), wpy_item( 'vid000000a1', 'First' ) ) ) ) );
+};
+unset( $GLOBALS['transients'][ $listKey ] );
+$GLOBALS['calls'] = array();
+$expired = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) );
+check( ! $GLOBALS['calls'] && false !== strpos( $expired, 'data-video="vid000000a1"' ) && false === strpos( $expired, 'vidnewest01' ), 'an expired list is shown at once, without waiting for YouTube' );
+check( isset( $GLOBALS['cron'][ 'wpy_refresh_playlist|' . $playlistId ] ), 'and a background refresh is scheduled' );
+WP_YouTube::refresh( $playlistId );
+check( false !== strpos( WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) ), 'class="wpy-feature"><button type="button" class="wpy-play" data-video="vidnewest01"' ), 'after the refresh the newest video leads' );
+unset( $GLOBALS['transients'][ $listKey ] );
+$GLOBALS['cron'][ 'wpy_refresh_playlist|' . $playlistId ] = time() - 3600;
+$GLOBALS['calls'] = array();
+WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) );
+check( 1 === count( $GLOBALS['calls'] ) && ! isset( $GLOBALS['cron'][ 'wpy_refresh_playlist|' . $playlistId ] ), 'when WP-Cron is not running the page fetches the list itself' );
+$GLOBALS['calls'] = array();
+check( 1 === WP_YouTube::refresh_known() && 1 === count( $GLOBALS['calls'] ), '"Refresh playlists now" fetches every shown playlist at once' );
 check( 1 === substr_count( $player, 'data-video=' ) && false === strpos( $player, 'wpy-grid' ), 'player mode unchanged: one poster' );
 
 // API failure with a key: one video, the reason for editors, and a quick retry.

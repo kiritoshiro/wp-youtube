@@ -3,10 +3,13 @@
 defined( 'ABSPATH' ) || exit;
 
 final class WP_YouTube {
-	const CACHE_TTL = 21600;
+	/** Seconds a fetched playlist is fresh; see videos(). */
+	const CACHE_TTL = 1800;
 	/** Seconds a one-video fallback (no key or API failure) is kept before trying the API again. */
 	const RETRY_TTL = 600;
 	const MAX_ITEMS = 100;
+	/** Option listing the playlists shown on the site, for "Refresh playlists now". */
+	const KNOWN = 'wpy_playlists';
 	private static $priority_used = false;
 
 	public static function register() {
@@ -16,6 +19,8 @@ final class WP_YouTube {
 		add_action( 'template_redirect', array( __CLASS__, 'thumbnail_request' ), 0 );
 		add_action( 'admin_menu', array( __CLASS__, 'settings_menu' ) );
 		add_action( 'admin_init', array( __CLASS__, 'settings' ) );
+		add_action( 'wpy_refresh_playlist', array( __CLASS__, 'refresh' ) );
+		add_action( 'admin_post_wpy_refresh', array( __CLASS__, 'refresh_request' ) );
 		add_filter( 'render_block_core/embed', array( __CLASS__, 'render_embed' ), 20, 2 );
 		add_shortcode( 'wp_youtube', array( __CLASS__, 'shortcode' ) );
 		add_shortcode( 'embedyt', array( __CLASS__, 'legacy_shortcode' ) );
@@ -265,15 +270,69 @@ final class WP_YouTube {
 	}
 
 	/**
-	 * A stale option keeps the page usable during temporary API failures. A
-	 * one-video oEmbed fallback is kept only RETRY_TTL seconds and never
-	 * replaces a full list.
+	 * A list is fresh for CACHE_TTL. After that, visitors get the last full
+	 * list at once and a background WP-Cron run fetches the new one, so a new
+	 * video shows within about half an hour and nobody waits for YouTube.
+	 * Without a saved list (first view, no key) the fetch happens here, as it
+	 * also does when WP-Cron is not running (the refresh is 10 minutes late).
 	 */
 	public static function videos( $playlist, $limit ) {
 		$key = self::cache_key( $playlist );
 		$fresh = get_transient( $key );
 		if ( is_array( $fresh ) ) {
 			return array_slice( $fresh, 0, $limit );
+		}
+		$stale = get_option( $key . '_last', array() );
+		if ( '' !== self::api_key() && is_array( $stale ) && $stale ) {
+			$args = array( $playlist );
+			$next = wp_next_scheduled( 'wpy_refresh_playlist', $args );
+			if ( false === $next ) {
+				wp_schedule_single_event( time(), 'wpy_refresh_playlist', $args );
+				return array_slice( $stale, 0, $limit );
+			}
+			if ( $next > time() - 600 ) {
+				return array_slice( $stale, 0, $limit );
+			}
+			wp_unschedule_event( $next, 'wpy_refresh_playlist', $args );
+		}
+		return array_slice( self::refresh( $playlist ), 0, $limit );
+	}
+
+	/** Refresh every playlist the site has shown; returns how many. */
+	public static function refresh_known() {
+		$known = get_option( self::KNOWN, array() );
+		$known = is_array( $known ) ? array_filter( array_map( array( __CLASS__, 'playlist_id' ), $known ) ) : array();
+		foreach ( $known as $playlist ) {
+			delete_transient( self::cache_key( $playlist ) );
+			self::refresh( $playlist );
+		}
+		return count( $known );
+	}
+
+	public static function refresh_request() {
+		if ( ! current_user_can( 'manage_options' ) || ! check_admin_referer( 'wpy_refresh' ) ) {
+			wp_die( esc_html__( 'You are not allowed to do this.', 'wp-youtube' ), 403 );
+		}
+		wp_safe_redirect( add_query_arg( array( 'page' => 'wp-youtube', 'wpy_refreshed' => self::refresh_known() ), admin_url( 'options-general.php' ) ) );
+		exit;
+	}
+
+	/**
+	 * Fetch a playlist now. A stale option keeps the page usable during
+	 * temporary API failures. A one-video oEmbed fallback is kept only
+	 * RETRY_TTL seconds and never replaces a full list.
+	 */
+	public static function refresh( $playlist ) {
+		$playlist = self::playlist_id( $playlist );
+		if ( '' === $playlist ) {
+			return array();
+		}
+		$key = self::cache_key( $playlist );
+		$known = get_option( self::KNOWN, array() );
+		$known = is_array( $known ) ? $known : array();
+		if ( ! in_array( $playlist, $known, true ) ) {
+			$known[] = $playlist;
+			update_option( self::KNOWN, array_slice( $known, -50 ), false );
 		}
 		$stale = get_option( $key . '_last', array() );
 		$items = array();
@@ -288,7 +347,7 @@ final class WP_YouTube {
 		}
 		if ( ! $items && is_array( $stale ) && $stale ) {
 			set_transient( $key, $stale, 300 );
-			return array_slice( $stale, 0, $limit );
+			return $stale;
 		}
 		if ( ! $items ) {
 			$response = wp_remote_get( 'https://www.youtube.com/oembed?format=json&url=' . rawurlencode( 'https://www.youtube.com/playlist?list=' . $playlist ), array( 'timeout' => 4, 'redirection' => 0, 'limit_response_size' => 10000 ) );
@@ -302,16 +361,16 @@ final class WP_YouTube {
 			if ( $items ) {
 				// Only the first video. With a key the API failed: try it again soon.
 				set_transient( $key, $items, '' !== $api_key ? self::RETRY_TTL : self::CACHE_TTL );
-				return array_slice( $items, 0, $limit );
+				return $items;
 			}
 		}
 		if ( $items ) {
 			set_transient( $key, $items, self::CACHE_TTL );
 			update_option( $key . '_last', $items, false );
-			return array_slice( $items, 0, $limit );
+			return $items;
 		}
 		set_transient( $key, is_array( $stale ) ? $stale : array(), 300 );
-		return array_slice( is_array( $stale ) ? $stale : array(), 0, $limit );
+		return is_array( $stale ) ? $stale : array();
 	}
 
 	public static function render( $playlist, $mode, $limit, $priority ) {
@@ -478,6 +537,16 @@ final class WP_YouTube {
 		settings_fields( 'wp_youtube' );
 		echo '<label for="wpy-key">YouTube Data API key</label> <input id="wpy-key" name="wpy_youtube_api_key" type="password" value="' . esc_attr( get_option( 'wpy_youtube_api_key', '' ) ) . '" autocomplete="off" class="regular-text">';
 		submit_button();
+		echo '</form>';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display only, after the nonce-checked redirect.
+		if ( isset( $_GET['wpy_refreshed'] ) ) {
+			/* translators: %d: number of playlists */
+			echo '<div class="notice notice-success"><p>' . esc_html( sprintf( __( 'Playlists refreshed: %d.', 'wp-youtube' ), absint( $_GET['wpy_refreshed'] ) ) ) . '</p></div>'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		}
+		echo '<h2>' . esc_html__( 'Playlists', 'wp-youtube' ) . '</h2><p>' . esc_html__( 'A playlist is kept for 30 minutes; after that the newer list is fetched in the background, so a new video appears within about half an hour. To show it at once, refresh now.', 'wp-youtube' ) . '</p>';
+		echo '<form action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" method="post"><input type="hidden" name="action" value="wpy_refresh">';
+		wp_nonce_field( 'wpy_refresh' );
+		submit_button( __( 'Refresh playlists now', 'wp-youtube' ), 'secondary', 'submit', false );
 		echo '</form><p>In the editor, add the <strong>YouTube playlist</strong> block and paste a playlist link. The shortcode <code>[wp_youtube playlist="PLAYLIST_ID" mode="gallery" limit="12"]</code> still works; for an above-the-fold player, use <code>priority="high"</code>. A <code>WPY_YOUTUBE_API_KEY</code> constant overrides the saved setting.</p></div>';
 	}
 }
