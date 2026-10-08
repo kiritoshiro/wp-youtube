@@ -39,7 +39,7 @@ Thumbnail requests go to `/?wpy_thumb=VIDEO_ID`. The plugin fetches a bounded JP
 
 ## Releases and updates
 
-Only a published GitHub release with a `wp-youtube-X.Y.Z.zip` asset and a GitHub SHA-256 asset digest is offered to WordPress. The updater verifies the downloaded ZIP against that digest. The ZIP must contain a top-level `wp-youtube/` directory. Push a `vX.Y.Z` tag matching the plugin header to trigger the release workflow. The public GitHub repository needs no token on the site.
+Only a published GitHub release with a `wp-youtube-X.Y.Z.zip` asset and a GitHub SHA-256 asset digest is offered to WordPress. The updater verifies the downloaded ZIP against that digest. The ZIP must contain a top-level `wp-youtube/` directory. Push a `vX.Y.Z` tag matching the plugin header to trigger the release workflow. The public GitHub repository needs no token on the site. The latest release is cached for six hours; "Check again" on Dashboard → Updates skips the cache.
 
 ## Development
 

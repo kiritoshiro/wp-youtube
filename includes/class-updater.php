@@ -12,6 +12,20 @@ final class WP_YouTube_Updater {
 		add_filter( 'update_plugins_github.com', array( __CLASS__, 'update_data' ), 10, 3 );
 		add_filter( 'plugins_api', array( __CLASS__, 'details' ), 10, 3 );
 		add_filter( 'upgrader_pre_download', array( __CLASS__, 'download' ), 10, 3 );
+		add_action( 'load-update-core.php', array( __CLASS__, 'force_check' ), 9 );
+	}
+
+	/**
+	 * "Check again" on Dashboard → Updates (force-check=1) only forces the core
+	 * check. Drop the release cache and WordPress' plugin update data before
+	 * wp_update_plugins runs (priority 10), so a new release shows at once.
+	 */
+	public static function force_check() {
+		if ( empty( $_GET['force-check'] ) || ! current_user_can( 'update_plugins' ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only cache refresh.
+			return;
+		}
+		delete_site_transient( self::CACHE );
+		delete_site_transient( 'update_plugins' );
 	}
 
 	public static function parse( $data ) {
