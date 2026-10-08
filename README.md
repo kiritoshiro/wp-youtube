@@ -13,7 +13,7 @@ In the editor, add the **YouTube playlist** block (Embeds category) and paste a 
 - **Show:** a player (one poster that plays the playlist) or a gallery (needs the API key below): the first video as a large player, then a grid of the playlist's videos with their titles. A thumbnail plays its video in the large player; a title opens the video on YouTube. Below the grid, "Show more videos" and a link to the whole playlist on YouTube.
 - **Videos shown at first:** for galleries, 1–100. "Show more videos" reveals the rest in steps of this size; hidden thumbnails are not downloaded until shown.
 - **List title / Title link / Title position:** optionally show your own linked title above or below the videos (below by default).
-- **Near the top of the page:** loads the first poster straight away with high priority; use it for one player above the fold.
+- **Near the top of the page:** loads the first poster straight away with high priority and announces it at the top of the page's `<head>`, so phones start it before the stylesheets; use it for one player above the fold.
 
 The preview in the editor is the real page output and is not clickable, so the editor never loads YouTube. Pasting a playlist link on its own line, or a `[wp_youtube]` or `[embedyt]` shortcode, creates the block; a YouTube embed block with a playlist link can be transformed into it.
 
