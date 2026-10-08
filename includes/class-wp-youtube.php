@@ -10,6 +10,8 @@ final class WP_YouTube {
 	const MAX_ITEMS = 100;
 	/** Option listing the playlists shown on the site, for "Refresh playlists now". */
 	const KNOWN = 'wpy_playlists';
+	/** Option whose number is part of every fresh-list transient; see fresh_key(). */
+	const GENERATION = 'wpy_cache_generation';
 	private static $priority_used = false;
 
 	public static function register() {
@@ -220,6 +222,27 @@ final class WP_YouTube {
 		return 'wpy3_' . md5( $playlist . '|' . self::api_key() );
 	}
 
+	/**
+	 * The transient that keeps a list fresh. It carries a generation number
+	 * that "Refresh playlists now" raises, which expires every cached list at
+	 * once, including lists cached by an older version of the plugin.
+	 */
+	private static function fresh_key( $playlist ) {
+		return self::cache_key( $playlist ) . '_g' . absint( get_option( self::GENERATION, 1 ) );
+	}
+
+	/** Note a shown playlist for "Refresh playlists now" (the last 50); true when it is new. */
+	private static function remember( $playlist ) {
+		$known = get_option( self::KNOWN, array() );
+		$known = is_array( $known ) ? $known : array();
+		if ( in_array( $playlist, $known, true ) ) {
+			return false;
+		}
+		$known[] = $playlist;
+		update_option( self::KNOWN, array_slice( $known, -50 ), false );
+		return true;
+	}
+
 	/** Up to MAX_ITEMS public videos of a playlist from the Data API; throws with a short reason. */
 	private static function api_items( $playlist, $api_key ) {
 		$items = array();
@@ -274,16 +297,18 @@ final class WP_YouTube {
 	 * list at once and a background WP-Cron run fetches the new one, so a new
 	 * video shows within about half an hour and nobody waits for YouTube.
 	 * Without a saved list (first view, no key) the fetch happens here, as it
-	 * also does when WP-Cron is not running (the refresh is 10 minutes late).
+	 * also does when WP-Cron is not running (the refresh is 10 minutes late)
+	 * and for a playlist not yet remembered (its saved list may be from before
+	 * the last "Refresh playlists now" or from an older version).
 	 */
 	public static function videos( $playlist, $limit ) {
-		$key = self::cache_key( $playlist );
-		$fresh = get_transient( $key );
+		$new = self::remember( $playlist );
+		$fresh = get_transient( self::fresh_key( $playlist ) );
 		if ( is_array( $fresh ) ) {
 			return array_slice( $fresh, 0, $limit );
 		}
-		$stale = get_option( $key . '_last', array() );
-		if ( '' !== self::api_key() && is_array( $stale ) && $stale ) {
+		$stale = get_option( self::cache_key( $playlist ) . '_last', array() );
+		if ( ! $new && '' !== self::api_key() && is_array( $stale ) && $stale ) {
 			$args = array( $playlist );
 			$next = wp_next_scheduled( 'wpy_refresh_playlist', $args );
 			if ( false === $next ) {
@@ -298,12 +323,16 @@ final class WP_YouTube {
 		return array_slice( self::refresh( $playlist ), 0, $limit );
 	}
 
-	/** Refresh every playlist the site has shown; returns how many. */
+	/**
+	 * Expire every cached list and fetch the playlists the site has shown;
+	 * returns how many were fetched. Any other list is fetched again the next
+	 * time its page is viewed.
+	 */
 	public static function refresh_known() {
+		update_option( self::GENERATION, absint( get_option( self::GENERATION, 1 ) ) + 1, true );
 		$known = get_option( self::KNOWN, array() );
 		$known = is_array( $known ) ? array_filter( array_map( array( __CLASS__, 'playlist_id' ), $known ) ) : array();
 		foreach ( $known as $playlist ) {
-			delete_transient( self::cache_key( $playlist ) );
 			self::refresh( $playlist );
 		}
 		return count( $known );
@@ -327,13 +356,9 @@ final class WP_YouTube {
 		if ( '' === $playlist ) {
 			return array();
 		}
+		self::remember( $playlist );
 		$key = self::cache_key( $playlist );
-		$known = get_option( self::KNOWN, array() );
-		$known = is_array( $known ) ? $known : array();
-		if ( ! in_array( $playlist, $known, true ) ) {
-			$known[] = $playlist;
-			update_option( self::KNOWN, array_slice( $known, -50 ), false );
-		}
+		$fresh = self::fresh_key( $playlist );
 		$stale = get_option( $key . '_last', array() );
 		$items = array();
 		$api_key = self::api_key();
@@ -346,7 +371,7 @@ final class WP_YouTube {
 			}
 		}
 		if ( ! $items && is_array( $stale ) && $stale ) {
-			set_transient( $key, $stale, 300 );
+			set_transient( $fresh, $stale, 300 );
 			return $stale;
 		}
 		if ( ! $items ) {
@@ -360,16 +385,16 @@ final class WP_YouTube {
 			}
 			if ( $items ) {
 				// Only the first video. With a key the API failed: try it again soon.
-				set_transient( $key, $items, '' !== $api_key ? self::RETRY_TTL : self::CACHE_TTL );
+				set_transient( $fresh, $items, '' !== $api_key ? self::RETRY_TTL : self::CACHE_TTL );
 				return $items;
 			}
 		}
 		if ( $items ) {
-			set_transient( $key, $items, self::CACHE_TTL );
+			set_transient( $fresh, $items, self::CACHE_TTL );
 			update_option( $key . '_last', $items, false );
 			return $items;
 		}
-		set_transient( $key, is_array( $stale ) ? $stale : array(), 300 );
+		set_transient( $fresh, is_array( $stale ) ? $stale : array(), 300 );
 		return is_array( $stale ) ? $stale : array();
 	}
 

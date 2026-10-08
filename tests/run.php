@@ -1,7 +1,7 @@
 <?php
 /* Small WordPress stubs exercise input parsing, escaped output, and release gating. */
 define( 'ABSPATH', __DIR__ );
-define( 'WPY_VERSION', '0.3.2' );
+define( 'WPY_VERSION', '0.3.3' );
 define( 'WPY_FILE', __DIR__ . '/../wp-youtube.php' );
 define( 'HOUR_IN_SECONDS', 3600 );
 function wp_parse_url( $url ) { return parse_url( $url ); }
@@ -125,7 +125,7 @@ check( array( '', '' ) === WP_YouTube::key_source(), 'no key' );
 $GLOBALS['editor'] = true;
 $nokey = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery', 'limit' => 2 ) );
 check( false !== strpos( $nokey, 'needs a YouTube Data API key' ) && 1 === substr_count( $nokey, 'data-video=' ), 'gallery without a key: one video and an editor note' );
-check( 1800 === WP_YouTube::CACHE_TTL && WP_YouTube::CACHE_TTL === $GLOBALS['ttl'][ 'wpy3_' . md5( $playlist . '|' ) ], 'without a key the oEmbed fallback is cached normally' );
+check( 1800 === WP_YouTube::CACHE_TTL && WP_YouTube::CACHE_TTL === $GLOBALS['ttl'][ 'wpy3_' . md5( $playlist . '|' ) . '_g1' ], 'without a key the oEmbed fallback is cached normally' );
 $GLOBALS['options']['alps_gb_youtube_api_key'] = 'AIzaAlpsKey_0123456789abcdefgh';
 check( 'AIzaAlpsKey_0123456789abcdefgh' === WP_YouTube::key_source()[0], 'falls back to the ALPS Gutenberg Blocks key' );
 $GLOBALS['options']['wpy_youtube_api_key'] = 'AIzaOwnKey_0123456789abcdefghij';
@@ -159,7 +159,7 @@ check( 2 === count( array_filter( $GLOBALS['calls'], function ( $u ) { return fa
 $player = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'playlist' ) );
 
 // After 30 minutes visitors get the saved list at once and WP-Cron fetches the new one.
-$listKey = 'wpy3_' . md5( $playlist . '|AIzaOwnKey_0123456789abcdefghij' );
+$listKey = 'wpy3_' . md5( $playlist . '|AIzaOwnKey_0123456789abcdefghij' ) . '_g1';
 $playlistId = WP_YouTube::playlist_id( $playlist );
 check( 1800 === $GLOBALS['ttl'][ $listKey ], 'a full list is fresh for 30 minutes' );
 check( array( $playlistId ) === $GLOBALS['options']['wpy_playlists'], 'shown playlists are remembered for "Refresh playlists now"' );
@@ -180,6 +180,23 @@ WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) );
 check( 1 === count( $GLOBALS['calls'] ) && ! isset( $GLOBALS['cron'][ 'wpy_refresh_playlist|' . $playlistId ] ), 'when WP-Cron is not running the page fetches the list itself' );
 $GLOBALS['calls'] = array();
 check( 1 === WP_YouTube::refresh_known() && 1 === count( $GLOBALS['calls'] ), '"Refresh playlists now" fetches every shown playlist at once' );
+check( 2 === $GLOBALS['options']['wpy_cache_generation'] && isset( $GLOBALS['transients'][ substr( $listKey, 0, -1 ) . '2' ] ), 'and expires every cached list' );
+
+// A list cached by 0.3.1 (6 hours, no generation) and a playlist never
+// remembered: the first view fetches it at once, it does not wait for WP-Cron.
+$GLOBALS['api'] = function ( $query ) {
+	return array( 'response' => array( 'code' => 200 ), 'body' => json_encode( array( 'items' => array( wpy_item( 'vidtoday001', 'Today' ), wpy_item( 'vidnewest01', 'Newest' ) ) ) ) );
+};
+$GLOBALS['options']['wpy_playlists'] = array();
+$GLOBALS['transients'] = array( substr( $listKey, 0, -3 ) => array( array( 'id' => 'vid000000a1', 'title' => 'Old' ) ) );
+$GLOBALS['cron'] = array();
+$GLOBALS['calls'] = array();
+$upgraded = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'playlist' ) );
+check( 1 === count( $GLOBALS['calls'] ) && false !== strpos( $upgraded, 'data-video="vidtoday001"' ) && ! $GLOBALS['cron'], 'a list from an older version is replaced on the first view' );
+check( array( $playlistId ) === $GLOBALS['options']['wpy_playlists'], 'the shown playlist is remembered before any fetch' );
+$GLOBALS['calls'] = array();
+WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'playlist' ) );
+check( ! $GLOBALS['calls'], 'then it is cached again' );
 check( 1 === substr_count( $player, 'data-video=' ) && false === strpos( $player, 'wpy-grid' ), 'player mode unchanged: one poster' );
 
 // API failure with a key: one video, the reason for editors, and a quick retry.
@@ -187,7 +204,7 @@ $GLOBALS['options']['wpy_youtube_api_key'] = 'AIzaBrokenKey_0123456789abcdefgh';
 $GLOBALS['api'] = function () { return array( 'response' => array( 'code' => 403 ), 'body' => '{"error":{"message":"API key not valid."}}' ); };
 $broken = WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) );
 check( false !== strpos( $broken, 'could not be read from YouTube (HTTP 403 API key not valid.)' ) && false === strpos( $broken, 'AIzaBrokenKey' ), 'editors see the API error without the key' );
-check( 600 === $GLOBALS['ttl'][ 'wpy3_' . md5( $playlist . '|AIzaBrokenKey_0123456789abcdefgh' ) ], 'a failed API fetch is retried after 10 minutes' );
+check( 600 === $GLOBALS['ttl'][ 'wpy3_' . md5( $playlist . '|AIzaBrokenKey_0123456789abcdefgh' ) . '_g2' ], 'a failed API fetch is retried after 10 minutes' );
 $GLOBALS['editor'] = false;
 check( false === strpos( WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) ), 'wpy-notice' ), 'visitors never see the note' );
 
