@@ -18,6 +18,7 @@ final class WP_YouTube {
 		add_action( 'init', array( __CLASS__, 'load_translations' ), 1 );
 		add_action( 'init', array( __CLASS__, 'register_block' ) );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'assets' ) );
+		add_action( 'wp_head', array( __CLASS__, 'preload_poster' ), 1 );
 		add_action( 'template_redirect', array( __CLASS__, 'thumbnail_request' ), 0 );
 		add_action( 'admin_menu', array( __CLASS__, 'settings_menu' ) );
 		add_action( 'admin_init', array( __CLASS__, 'settings' ) );
@@ -125,6 +126,46 @@ final class WP_YouTube {
 	public static function assets() {
 		wp_enqueue_style( 'wp-youtube', plugins_url( 'assets/player.css', WPY_FILE ), array(), WPY_VERSION );
 		wp_enqueue_script( 'wp-youtube', plugins_url( 'assets/player.js', WPY_FILE ), array(), WPY_VERSION, array( 'in_footer' => true, 'strategy' => 'defer' ) );
+	}
+
+	/**
+	 * The poster of the first block set "Near the top of the page" is
+	 * announced at the start of <head>. In the <img> the browser would find it
+	 * only after the head's stylesheets and most of the page, which on a phone
+	 * made it start about a second late. Blocks in the post content only.
+	 */
+	public static function preload_poster() {
+		$post = is_singular() ? get_queried_object() : null;
+		if ( ! $post instanceof WP_Post || post_password_required( $post ) || ! has_block( 'wp-youtube/playlist', $post ) ) {
+			return;
+		}
+		$attributes = self::priority_block( parse_blocks( $post->post_content ) );
+		$playlist = self::playlist_id( isset( $attributes['url'] ) ? $attributes['url'] : '' );
+		if ( '' === $playlist ) {
+			return;
+		}
+		// The same cached list the block renders from, so the first video matches.
+		$items = self::videos( $playlist, 1 );
+		$video = self::video_id( isset( $items[0]['id'] ) ? $items[0]['id'] : '' );
+		if ( '' === $video ) {
+			return;
+		}
+		$large = isset( $attributes['mode'] ) && 'gallery' === $attributes['mode'];
+		echo '<link rel="preload" as="image" href="' . esc_url( self::poster_url( $video, $large ? 'large' : '' ) ) . '" fetchpriority="high">' . "\n";
+	}
+
+	/** Attributes of the first playlist block with "Near the top of the page", in nested blocks too. */
+	private static function priority_block( array $blocks ) {
+		foreach ( $blocks as $block ) {
+			if ( isset( $block['blockName'] ) && 'wp-youtube/playlist' === $block['blockName'] && ! empty( $block['attrs']['priority'] ) ) {
+				return $block['attrs'];
+			}
+			$inner = ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? self::priority_block( $block['innerBlocks'] ) : array();
+			if ( $inner ) {
+				return $inner;
+			}
+		}
+		return array();
 	}
 
 	/** Shortcode values pasted into the editor arrive with &amp; and sometimes curly quotes. */

@@ -1,7 +1,7 @@
 <?php
 /* Small WordPress stubs exercise input parsing, escaped output, and release gating. */
 define( 'ABSPATH', __DIR__ );
-define( 'WPY_VERSION', '0.3.3' );
+define( 'WPY_VERSION', '0.3.4' );
 define( 'WPY_FILE', __DIR__ . '/../wp-youtube.php' );
 define( 'HOUR_IN_SECONDS', 3600 );
 function wp_parse_url( $url ) { return parse_url( $url ); }
@@ -207,6 +207,42 @@ check( false !== strpos( $broken, 'could not be read from YouTube (HTTP 403 API 
 check( 600 === $GLOBALS['ttl'][ 'wpy3_' . md5( $playlist . '|AIzaBrokenKey_0123456789abcdefgh' ) . '_g2' ], 'a failed API fetch is retried after 10 minutes' );
 $GLOBALS['editor'] = false;
 check( false === strpos( WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) ), 'wpy-notice' ), 'visitors never see the note' );
+
+// The poster of a block set "Near the top of the page" is preloaded from <head>.
+class WP_Post { public $post_content = ''; public $post_password = ''; }
+$GLOBALS['singular'] = true;
+$GLOBALS['queried'] = null;
+function is_singular() { return $GLOBALS['singular']; }
+function get_queried_object() { return $GLOBALS['queried']; }
+function post_password_required( $post ) { return '' !== $post->post_password; }
+function has_block( $name, $post ) { return false !== strpos( $post->post_content, '<!-- wp:' . substr( $name, 0, strpos( $name, '/' ) + 1 ) ); }
+function parse_blocks( $content ) { return json_decode( str_replace( '<!-- wp:wp-youtube/playlist -->', '', $content ), true ); }
+$fresh = new ReflectionMethod( 'WP_YouTube', 'fresh_key' );
+$fresh->setAccessible( true );
+$GLOBALS['transients'][ $fresh->invoke( null, $playlist ) ] = array( array( 'id' => 'vidfirst001', 'title' => 'First' ), array( 'id' => 'vidsecond02', 'title' => 'Second' ) );
+$GLOBALS['calls'] = array();
+$preload = function ( array $blocks, $password = '' ) {
+	$post = new WP_Post();
+	// parse_blocks() is stubbed to read JSON; the marker satisfies has_block().
+	$post->post_content = json_encode( $blocks ) . ( $blocks ? '<!-- wp:wp-youtube/playlist -->' : '' );
+	$post->post_password = $password;
+	$GLOBALS['queried'] = $post;
+	ob_start();
+	WP_YouTube::preload_poster();
+	return ob_get_clean();
+};
+$block = function ( array $attrs ) { return array( 'blockName' => 'wp-youtube/playlist', 'attrs' => $attrs, 'innerBlocks' => array() ); };
+$nested = array( array( 'blockName' => 'core/paragraph', 'attrs' => array(), 'innerBlocks' => array() ), array( 'blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array( $block( array( 'url' => $playlist ) ), $block( array( 'url' => $playlist, 'priority' => true ) ) ) ) );
+$head = $preload( $nested );
+check( 0 === strpos( $head, '<link rel="preload" as="image" href="https://example.test/?wpy_thumb=vidfirst001&amp;wpy_sig=' ) && false !== strpos( $head, '" fetchpriority="high">' ), 'poster of a "Near the top" block (nested in a group) is preloaded: ' . $head );
+check( ! $GLOBALS['calls'], 'from the cached list the block renders' );
+check( false !== strpos( $preload( array( $block( array( 'url' => $playlist, 'priority' => true, 'mode' => 'gallery' ) ) ) ), 'wpy_size=large' ), 'a gallery preloads its large poster' );
+check( '' === $preload( array( $block( array( 'url' => $playlist ) ) ) ), 'no preload without "Near the top of the page"' );
+check( '' === $preload( array( $block( array( 'url' => 'not a playlist', 'priority' => true ) ) ) ), 'no preload for an invalid playlist' );
+check( '' === $preload( array() ), 'no preload on a page without the block' );
+check( '' === $preload( $nested, 'secret' ), 'no preload on a password-protected post' );
+$GLOBALS['singular'] = false;
+check( '' === $preload( $nested ), 'no preload on archives' );
 
 // Every translatable PHP string has a Lithuanian translation.
 $source = file_get_contents( __DIR__ . '/../includes/class-wp-youtube.php' );
