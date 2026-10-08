@@ -1,7 +1,7 @@
 <?php
 /* Small WordPress stubs exercise input parsing, escaped output, and release gating. */
 define( 'ABSPATH', __DIR__ );
-define( 'WPY_VERSION', '0.3.0' );
+define( 'WPY_VERSION', '0.3.1' );
 define( 'WPY_FILE', __DIR__ . '/../wp-youtube.php' );
 define( 'HOUR_IN_SECONDS', 3600 );
 function wp_parse_url( $url ) { return parse_url( $url ); }
@@ -13,6 +13,7 @@ $GLOBALS['api'] = null;
 $GLOBALS['editor'] = false;
 function get_transient( $key ) { return isset( $GLOBALS['transients'][ $key ] ) ? $GLOBALS['transients'][ $key ] : false; }
 function get_site_transient( $key ) { global $test_release; return $test_release; }
+function delete_site_transient( $key ) { $GLOBALS['deleted'][] = $key; }
 function get_option( $key, $default = '' ) { return array_key_exists( $key, $GLOBALS['options'] ) ? $GLOBALS['options'][ $key ] : $default; }
 function set_transient( $key, $value, $ttl ) { $GLOBALS['transients'][ $key ] = $value; $GLOBALS['ttl'][ $key ] = $ttl; }
 function delete_transient( $key ) { unset( $GLOBALS['transients'][ $key ] ); }
@@ -98,6 +99,21 @@ $release['assets'][0]['browser_download_url'] = 'https://evil.test/plugin.zip';
 check( null === WP_YouTube_Updater::parse( $release ), 'reject external asset URL' );
 $test_release = WP_YouTube_Updater::parse( array( 'tag_name' => 'v0.3.0', 'assets' => array( $asset ) ) );
 check( is_wp_error( WP_YouTube_Updater::download( false, $test_release['package'], null ) ), 'reject tampered update ZIP' );
+// "Check again" (force-check=1) drops the release cache and WordPress' plugin update data, for admins only.
+$GLOBALS['deleted'] = array();
+$GLOBALS['editor'] = false;
+$_GET['force-check'] = '1';
+WP_YouTube_Updater::force_check();
+check( array() === $GLOBALS['deleted'], 'force check needs update_plugins' );
+$GLOBALS['editor'] = true;
+unset( $_GET['force-check'] );
+WP_YouTube_Updater::force_check();
+check( array() === $GLOBALS['deleted'], 'plain Updates screen keeps the cache' );
+$_GET['force-check'] = '1';
+WP_YouTube_Updater::force_check();
+unset( $_GET['force-check'] );
+check( array( 'wpy_latest_release', 'update_plugins' ) === $GLOBALS['deleted'], 'Check again refreshes the release' );
+$GLOBALS['editor'] = false;
 // Gallery: one key for both YouTube blocks, a large player, a grid and "Show more".
 $GLOBALS['transients'] = array();
 $GLOBALS['options'] = array();
