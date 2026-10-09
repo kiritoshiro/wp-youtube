@@ -12,7 +12,9 @@ final class WP_YouTube {
 	const KNOWN = 'wpy_playlists';
 	/** Option whose number is part of every fresh-list transient; see fresh_key(). */
 	const GENERATION = 'wpy_cache_generation';
-	private static $priority_used = false;
+	/** Posters per page loaded straight away with high priority (WordPress itself leaves the first 3 content images eager). */
+	const PRIORITY_MAX = 3;
+	private static $priority_count = 0;
 
 	public static function register() {
 		add_action( 'init', array( __CLASS__, 'load_translations' ), 1 );
@@ -24,6 +26,7 @@ final class WP_YouTube {
 		add_action( 'admin_init', array( __CLASS__, 'settings' ) );
 		add_action( 'wpy_refresh_playlist', array( __CLASS__, 'refresh' ) );
 		add_action( 'admin_post_wpy_refresh', array( __CLASS__, 'refresh_request' ) );
+		add_filter( 'render_block_data', array( __CLASS__, 'share_row_priority' ) );
 		add_filter( 'render_block_core/embed', array( __CLASS__, 'render_embed' ), 20, 2 );
 		add_shortcode( 'wp_youtube', array( __CLASS__, 'shortcode' ) );
 		add_shortcode( 'embedyt', array( __CLASS__, 'legacy_shortcode' ) );
@@ -129,43 +132,92 @@ final class WP_YouTube {
 	}
 
 	/**
-	 * The poster of the first block set "Near the top of the page" is
-	 * announced at the start of <head>. In the <img> the browser would find it
-	 * only after the head's stylesheets and most of the page, which on a phone
-	 * made it start about a second late. Blocks in the post content only.
+	 * The posters of blocks set "Near the top of the page" are announced at
+	 * the start of <head>. In the <img> the browser would find them only after
+	 * the head's stylesheets and most of the page, which on a phone made them
+	 * start about a second late. Blocks in the post content only, in page
+	 * order, as many as render() loads with priority.
 	 */
 	public static function preload_poster() {
 		$post = is_singular() ? get_queried_object() : null;
 		if ( ! $post instanceof WP_Post || post_password_required( $post ) || ! has_block( 'wp-youtube/playlist', $post ) ) {
 			return;
 		}
-		$attributes = self::priority_block( parse_blocks( $post->post_content ) );
-		$playlist = self::playlist_id( isset( $attributes['url'] ) ? $attributes['url'] : '' );
-		if ( '' === $playlist ) {
-			return;
+		$count = 0;
+		foreach ( self::priority_blocks( self::share_rows( parse_blocks( $post->post_content ) ) ) as $attributes ) {
+			$playlist = self::playlist_id( isset( $attributes['url'] ) ? $attributes['url'] : '' );
+			if ( '' === $playlist ) {
+				continue;
+			}
+			// The same cached list the block renders from, so the first video matches.
+			$items = self::videos( $playlist, 1 );
+			$video = self::video_id( isset( $items[0]['id'] ) ? $items[0]['id'] : '' );
+			if ( '' === $video ) {
+				continue;
+			}
+			$large = isset( $attributes['mode'] ) && 'gallery' === $attributes['mode'];
+			echo '<link rel="preload" as="image" href="' . esc_url( self::poster_url( $video, $large ? 'large' : '' ) ) . '" fetchpriority="high">' . "\n";
+			if ( ++$count >= self::PRIORITY_MAX ) {
+				return;
+			}
 		}
-		// The same cached list the block renders from, so the first video matches.
-		$items = self::videos( $playlist, 1 );
-		$video = self::video_id( isset( $items[0]['id'] ) ? $items[0]['id'] : '' );
-		if ( '' === $video ) {
-			return;
-		}
-		$large = isset( $attributes['mode'] ) && 'gallery' === $attributes['mode'];
-		echo '<link rel="preload" as="image" href="' . esc_url( self::poster_url( $video, $large ? 'large' : '' ) ) . '" fetchpriority="high">' . "\n";
 	}
 
-	/** Attributes of the first playlist block with "Near the top of the page", in nested blocks too. */
-	private static function priority_block( array $blocks ) {
-		foreach ( $blocks as $block ) {
-			if ( isset( $block['blockName'] ) && 'wp-youtube/playlist' === $block['blockName'] && ! empty( $block['attrs']['priority'] ) ) {
-				return $block['attrs'];
+	/**
+	 * Playlists side by side are seen together: when one block in a Columns
+	 * row is set "Near the top of the page", the row's other playlist blocks
+	 * are too. Otherwise the poster next to it stayed lazy and, being the
+	 * largest image on screen, became a late LCP element.
+	 */
+	public static function share_row_priority( $parsed ) {
+		if ( ! is_array( $parsed ) || ! isset( $parsed['blockName'] ) || 'core/columns' !== $parsed['blockName'] ) {
+			return $parsed;
+		}
+		$rows = self::share_rows( array( $parsed ) );
+		return $rows[0];
+	}
+
+	private static function share_rows( array $blocks ) {
+		foreach ( $blocks as $index => $block ) {
+			if ( ! is_array( $block ) || empty( $block['innerBlocks'] ) || ! is_array( $block['innerBlocks'] ) ) {
+				continue;
 			}
-			$inner = ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? self::priority_block( $block['innerBlocks'] ) : array();
-			if ( $inner ) {
-				return $inner;
+			$columns = isset( $block['blockName'] ) && 'core/columns' === $block['blockName'];
+			$blocks[ $index ]['innerBlocks'] = $columns && self::priority_blocks( $block['innerBlocks'] ) ? self::mark_priority( $block['innerBlocks'] ) : self::share_rows( $block['innerBlocks'] );
+		}
+		return $blocks;
+	}
+
+	private static function mark_priority( array $blocks ) {
+		foreach ( $blocks as $index => $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+			if ( isset( $block['blockName'] ) && 'wp-youtube/playlist' === $block['blockName'] ) {
+				$blocks[ $index ]['attrs'] = array_merge( isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array(), array( 'priority' => true ) );
+			}
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$blocks[ $index ]['innerBlocks'] = self::mark_priority( $block['innerBlocks'] );
 			}
 		}
-		return array();
+		return $blocks;
+	}
+
+	/** Attributes of the playlist blocks set "Near the top of the page", in page order, nested blocks too. */
+	private static function priority_blocks( array $blocks ) {
+		$found = array();
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+			if ( isset( $block['blockName'] ) && 'wp-youtube/playlist' === $block['blockName'] && ! empty( $block['attrs']['priority'] ) ) {
+				$found[] = $block['attrs'];
+			}
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$found = array_merge( $found, self::priority_blocks( $block['innerBlocks'] ) );
+			}
+		}
+		return $found;
 	}
 
 	/** Shortcode values pasted into the editor arrive with &amp; and sometimes curly quotes. */
@@ -208,7 +260,7 @@ final class WP_YouTube {
 			return $html;
 		}
 		$gallery = self::is_gallery_url( $url );
-		return '<figure class="wp-block-embed wp-block-embed-youtube">' . self::render( $id, $gallery ? 'gallery' : 'playlist', $gallery ? 12 : 1, true ) . '</figure>';
+		return '<figure class="wp-block-embed wp-block-embed-youtube">' . self::render( $id, $gallery ? 'gallery' : 'playlist', $gallery ? 12 : 1, 0 === self::$priority_count ) . '</figure>';
 	}
 
 	public static function legacy_shortcode( $atts, $content = '' ) {
@@ -440,12 +492,12 @@ final class WP_YouTube {
 	}
 
 	public static function render( $playlist, $mode, $limit, $priority ) {
-		$priority = $priority && ! self::$priority_used;
+		$priority = $priority && self::$priority_count < self::PRIORITY_MAX;
 		$items = self::videos( $playlist, 'gallery' === $mode ? self::MAX_ITEMS : 1 );
 		if ( ! $items ) {
 			return '<p>' . esc_html__( 'Videos are temporarily unavailable.', 'wp-youtube' ) . '</p>';
 		}
-		if ( $priority ) { self::$priority_used = true; }
+		if ( $priority ) { ++self::$priority_count; }
 		if ( 'gallery' === $mode ) {
 			return self::render_gallery( $playlist, $items, max( 1, (int) $limit ), $priority );
 		}

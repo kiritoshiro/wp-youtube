@@ -1,7 +1,7 @@
 <?php
 /* Small WordPress stubs exercise input parsing, escaped output, and release gating. */
 define( 'ABSPATH', __DIR__ );
-define( 'WPY_VERSION', '0.3.4' );
+define( 'WPY_VERSION', '0.3.5' );
 define( 'WPY_FILE', __DIR__ . '/../wp-youtube.php' );
 define( 'HOUR_IN_SECONDS', 3600 );
 function wp_parse_url( $url ) { return parse_url( $url ); }
@@ -243,6 +243,32 @@ check( '' === $preload( array() ), 'no preload on a page without the block' );
 check( '' === $preload( $nested, 'secret' ), 'no preload on a password-protected post' );
 $GLOBALS['singular'] = false;
 check( '' === $preload( $nested ), 'no preload on archives' );
+$GLOBALS['singular'] = true;
+
+// Playlists side by side in a Columns row share "Near the top of the page".
+$column = function ( array $inner ) { return array( 'blockName' => 'core/column', 'attrs' => array(), 'innerBlocks' => $inner ); };
+$columns = function ( array $inner ) { return array( 'blockName' => 'core/columns', 'attrs' => array(), 'innerBlocks' => $inner ); };
+$row = $columns( array( $column( array( $block( array( 'url' => $playlist, 'priority' => true ) ) ) ), $column( array( $block( array( 'url' => $playlist, 'mode' => 'gallery' ) ) ) ) ) );
+$shared = WP_YouTube::share_row_priority( $row );
+check( ! empty( $shared['innerBlocks'][1]['innerBlocks'][0]['attrs']['priority'] ) && 'gallery' === $shared['innerBlocks'][1]['innerBlocks'][0]['attrs']['mode'], 'the playlist next to a "Near the top" block shares it, keeping its settings' );
+$plain_row = $columns( array( $column( array( $block( array( 'url' => $playlist ) ) ) ), $column( array( $block( array( 'url' => $playlist ) ) ) ) ) );
+check( WP_YouTube::share_row_priority( $plain_row ) === $plain_row, 'a row without "Near the top" is left alone' );
+check( $nested[1] === WP_YouTube::share_row_priority( $nested[1] ), 'groups are not rows' );
+$head = $preload( array( $row ) );
+check( 2 === substr_count( $head, '<link rel="preload"' ) && false !== strpos( $head, 'wpy_size=large' ), 'both posters of the row are preloaded: ' . $head );
+$many = array();
+for ( $i = 0; $i < 5; $i++ ) { $many[] = $block( array( 'url' => $playlist, 'priority' => true ) ); }
+check( 3 === substr_count( $preload( $many ), '<link rel="preload"' ), 'at most three posters are preloaded' );
+
+$count = new ReflectionProperty( 'WP_YouTube', 'priority_count' );
+$count->setAccessible( true );
+$count->setValue( null, 0 );
+$eager = 0;
+for ( $i = 0; $i < 5; $i++ ) {
+	$eager += substr_count( WP_YouTube::render_block( array( 'url' => $playlist, 'priority' => true ) ), 'loading="eager" decoding="async" fetchpriority="high"' );
+}
+check( 3 === $eager, 'at most three posters render eager with high priority: ' . $eager );
+check( false === strpos( WP_YouTube::render_embed( '', array( 'attrs' => array( 'url' => 'https://www.youtube.com/playlist?list=' . $playlist ) ) ), 'fetchpriority' ), 'an embed takes priority only when nothing else has' );
 
 // Every translatable PHP string has a Lithuanian translation.
 $source = file_get_contents( __DIR__ . '/../includes/class-wp-youtube.php' );
