@@ -160,7 +160,7 @@
           el(c.ToggleControl, {
             __nextHasNoMarginBottom: true,
             label: __('Near the top of the page', 'wp-youtube'),
-            help: __('Loads the first poster straight away with high priority. Use it for one player above the fold.', 'wp-youtube'),
+            help: __('Loads the first poster straight away with high priority. Use it for players above the fold; playlists in the same columns row get it too.', 'wp-youtube'),
             checked: !!attributes.priority,
             onChange: function (priority) { setAttributes({priority: priority}); },
           }))),
