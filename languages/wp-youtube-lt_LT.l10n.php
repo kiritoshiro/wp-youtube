@@ -20,6 +20,7 @@ return array(
 		'Show more videos'                                                    => 'Rodyti daugiau vaizdo įrašų',
 		'The playlist could not be read from YouTube (%s), so only the first video is shown.' => 'Nepavyko gauti grojaraščio iš YouTube (%s), todėl rodomas tik pirmas vaizdo įrašas.',
 		'Videos are temporarily unavailable.'                                 => 'Vaizdo įrašai laikinai nepasiekiami.',
+		'YouTube: a new playlist is loaded only when someone who can publish posts previews or views the page.' => 'YouTube: naujas grojaraštis įkeliamas tik tada, kai puslapį peržiūri ar atidaro naudotojas, galintis skelbti įrašus.',
 		'YouTube playlist'                                                    => 'YouTube grojaraštis',
 		'YouTube playlist: add a playlist link (with list=) or a playlist ID.' => 'YouTube grojaraštis: įrašykite grojaraščio nuorodą (su list=) arba grojaraščio ID.',
 		'YouTube: [embedyt] needs a playlist link (with list=).'              => 'YouTube: [embedyt] reikia grojaraščio nuorodos (su list=).',

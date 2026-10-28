@@ -35,7 +35,11 @@ function add_query_arg( $args, $url ) { return $url . '?' . implode( '&', array_
 function wp_strip_all_tags( $s ) { return trim( strip_tags( (string) $s ) ); }
 function sanitize_key( $s ) { return strtolower( preg_replace( '/[^a-z0-9_\-]/i', '', (string) $s ) ); }
 function wp_unslash( $s ) { return $s; }
-function current_user_can( $cap ) { return $GLOBALS['editor']; }
+// A Contributor: edit_posts without publish_posts ($GLOBALS['publisher'] = false).
+function current_user_can( $cap ) { return 'publish_posts' === $cap && isset( $GLOBALS['publisher'] ) ? $GLOBALS['publisher'] : $GLOBALS['editor']; }
+function is_user_logged_in() { return ! empty( $GLOBALS['logged_in'] ); }
+function is_admin() { return false; }
+function is_preview() { return ! empty( $GLOBALS['preview'] ); }
 function get_block_wrapper_attributes( $extra ) { return 'class="' . $extra['class'] . '"'; }
 function wp_remote_retrieve_response_code( $response ) { return $response['response']['code']; }
 function wp_remote_retrieve_body( $response ) { return $response['body']; }
@@ -207,6 +211,52 @@ check( false !== strpos( $broken, 'could not be read from YouTube (HTTP 403 API 
 check( 600 === $GLOBALS['ttl'][ 'wpy3_' . md5( $playlist . '|AIzaBrokenKey_0123456789abcdefgh' ) . '_g2' ], 'a failed API fetch is retried after 10 minutes' );
 $GLOBALS['editor'] = false;
 check( false === strpos( WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) ), 'wpy-notice' ), 'visitors never see the note' );
+
+// The editor, previews and the REST block renderer accept any playlist: a new
+// one is fetched there only for users who can publish posts.
+$GLOBALS['options']['wpy_youtube_api_key'] = 'AIzaOwnKey_0123456789abcdefghij';
+$GLOBALS['api'] = function ( $query ) {
+	return array( 'response' => array( 'code' => 200 ), 'body' => json_encode( array( 'items' => array( wpy_item( 'vidtyped001', 'Typed' ) ) ) ) );
+};
+$GLOBALS['editor'] = true;
+$GLOBALS['publisher'] = false;
+$GLOBALS['logged_in'] = true;
+$GLOBALS['preview'] = true;
+$GLOBALS['calls'] = array();
+$GLOBALS['cron'] = array();
+$options = $GLOBALS['options'];
+$transients = $GLOBALS['transients'];
+$typed = 'PLcontributorTyped0000001';
+$html = WP_YouTube::render_block( array( 'url' => $typed, 'mode' => 'gallery' ) );
+check( ! $GLOBALS['calls'] && $options === $GLOBALS['options'] && $transients === $GLOBALS['transients'] && ! $GLOBALS['cron'], 'Contributor preview: a new playlist is not fetched, stored, remembered or scheduled' );
+check( false !== strpos( $html, 'loaded only when someone who can publish posts' ), 'the Contributor sees why' );
+for ( $i = 10; $i < 30; $i++ ) {
+	WP_YouTube::render_block( array( 'url' => 'PLcontributorTyped00000' . $i ) );
+	WP_YouTube::shortcode( array( 'playlist' => 'PLcontributorShortcode0' . $i ) );
+	WP_YouTube::render_embed( '', array( 'attrs' => array( 'url' => 'https://www.youtube.com/playlist?list=PLcontributorEmbed000' . $i ) ) );
+}
+check( ! $GLOBALS['calls'] && $options === $GLOBALS['options'] && $transients === $GLOBALS['transients'], 'nor any number of other playlists, through the block, shortcode or embed' );
+check( false !== strpos( WP_YouTube::render_block( array( 'url' => $playlist, 'mode' => 'gallery' ) ), 'data-video=' ) && ! $GLOBALS['calls'], 'a cached playlist still shows' );
+$GLOBALS['publisher'] = true;
+WP_YouTube::render_block( array( 'url' => $typed ) );
+check( 1 === count( $GLOBALS['calls'] ), 'a user who can publish posts fetches it' );
+$GLOBALS['publisher'] = false;
+$GLOBALS['preview'] = false;
+$GLOBALS['calls'] = array();
+WP_YouTube::render_block( array( 'url' => 'PLpublishedPage000000001' ) );
+check( 1 === count( $GLOBALS['calls'] ), 'a published page fetches a new playlist for any logged-in reader' );
+$GLOBALS['logged_in'] = false;
+$GLOBALS['calls'] = array();
+WP_YouTube::render_block( array( 'url' => 'PLvisitorPage0000000001' ) );
+check( 1 === count( $GLOBALS['calls'] ), 'and for visitors' );
+define( 'REST_REQUEST', true );
+$GLOBALS['logged_in'] = true;
+$GLOBALS['calls'] = array();
+WP_YouTube::render_block( array( 'url' => 'PLrestRenderer000000001' ) );
+check( ! $GLOBALS['calls'], 'REST block renderer: a Contributor fetches nothing' );
+$GLOBALS['logged_in'] = false;
+unset( $GLOBALS['publisher'] );
+$GLOBALS['editor'] = false;
 
 // The poster of a block set "Near the top of the page" is preloaded from <head>.
 class WP_Post { public $post_content = ''; public $post_password = ''; }

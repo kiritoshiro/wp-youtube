@@ -395,6 +395,12 @@ final class WP_YouTube {
 	 * the last "Refresh playlists now" or from an older version).
 	 */
 	public static function videos( $playlist, $limit ) {
+		if ( ! self::may_fetch() ) {
+			// Cached lists only; the playlist is not remembered either.
+			$fresh = get_transient( self::fresh_key( $playlist ) );
+			$items = is_array( $fresh ) ? $fresh : get_option( self::cache_key( $playlist ) . '_last', array() );
+			return is_array( $items ) ? array_slice( $items, 0, $limit ) : array();
+		}
 		$new = self::remember( $playlist );
 		$fresh = get_transient( self::fresh_key( $playlist ) );
 		if ( is_array( $fresh ) ) {
@@ -414,6 +420,21 @@ final class WP_YouTube {
 			wp_unschedule_event( $next, 'wpy_refresh_playlist', $args );
 		}
 		return array_slice( self::refresh( $playlist ), 0, $limit );
+	}
+
+	/**
+	 * Whether this request may fetch a playlist that has no fresh list. The
+	 * editor, previews and the REST block renderer accept any playlist from
+	 * anyone who can edit posts, so a Contributor could otherwise make the
+	 * site spend API quota on, and keep a list and poster files for, every
+	 * playlist they type, and push the site's own playlists out of the list
+	 * "Refresh playlists now" uses. There only users who can publish posts
+	 * fetch; anyone else gets cached lists. Public pages show published
+	 * content, so visitors and WP-Cron still fetch a new playlist.
+	 */
+	private static function may_fetch() {
+		$editor = ( defined( 'REST_REQUEST' ) && REST_REQUEST ) || is_admin() || is_preview();
+		return ! $editor || ! is_user_logged_in() || current_user_can( 'publish_posts' );
 	}
 
 	/**
@@ -495,7 +516,8 @@ final class WP_YouTube {
 		$priority = $priority && self::$priority_count < self::PRIORITY_MAX;
 		$items = self::videos( $playlist, 'gallery' === $mode ? self::MAX_ITEMS : 1 );
 		if ( ! $items ) {
-			return '<p>' . esc_html__( 'Videos are temporarily unavailable.', 'wp-youtube' ) . '</p>';
+			$wait = self::may_fetch() ? '' : self::notice( __( 'YouTube: a new playlist is loaded only when someone who can publish posts previews or views the page.', 'wp-youtube' ) );
+			return $wait . '<p>' . esc_html__( 'Videos are temporarily unavailable.', 'wp-youtube' ) . '</p>';
 		}
 		if ( $priority ) { ++self::$priority_count; }
 		if ( 'gallery' === $mode ) {
